@@ -1,0 +1,786 @@
+{
+  "version": "1.0-5bb519c5",
+  "data_sha": "5bb519c5efc9",
+  "split": {
+    "train_before": "2025-04-16 16:30:00+05:30",
+    "test_from": "2025-05-01 19:00:00+05:30"
+  },
+  "volume": {
+    "selected": "XGBoost",
+    "candidates": [
+      {
+        "model": "Linear Regression",
+        "cv_std": 0.85144991697709,
+        "params": {},
+        "train_rows": 122543,
+        "fit_seconds": 0.9,
+        "cv_rmse": 71.9557342924187,
+        "test": {
+          "rmse": 70.39567831216057,
+          "mae": 48.93538790012307,
+          "mape": 12.631864123180177,
+          "r2": 0.9392359747360424
+        }
+      },
+      {
+        "model": "Decision Tree",
+        "cv_std": 1.9291049556985593,
+        "params": {
+          "max_depth": 8
+        },
+        "train_rows": 122543,
+        "fit_seconds": 9.2,
+        "cv_rmse": 73.24848539621969,
+        "test": {
+          "rmse": 70.19394850269039,
+          "mae": 47.97043968453842,
+          "mape": 11.455257115802839,
+          "r2": 0.9395837333498505
+        }
+      },
+      {
+        "model": "Random Forest",
+        "cv_std": 3.7738222223964,
+        "params": {
+          "max_depth": 12,
+          "n_estimators": 100
+        },
+        "train_rows": 122543,
+        "fit_seconds": 57.3,
+        "cv_rmse": 63.436543440608396,
+        "test": {
+          "rmse": 58.52438169485536,
+          "mae": 39.83878900658019,
+          "mape": 9.386784468165395,
+          "r2": 0.9580020388181804
+        }
+      },
+      {
+        "model": "XGBoost",
+        "cv_std": 3.0366684870187477,
+        "params": {
+          "learning_rate": 0.05,
+          "max_depth": 4,
+          "n_estimators": 300
+        },
+        "train_rows": 122543,
+        "fit_seconds": 35.6,
+        "cv_rmse": 60.920917430428425,
+        "test": {
+          "rmse": 58.28633430215036,
+          "mae": 40.06971575207504,
+          "mape": 9.553638497564702,
+          "r2": 0.9583429966374161
+        }
+      }
+    ],
+    "horizons": {
+      "1": {
+        "rmse": 58.28633430215036,
+        "mae": 40.06971575207504,
+        "mape": 9.553638497564702,
+        "r2": 0.9583429966374161,
+        "coverage": 0.8086262523348616,
+        "avg_half_width": 65.66738121856243
+      },
+      "2": {
+        "rmse": 58.431385238872345,
+        "mae": 40.246672889794546,
+        "mape": 9.642473160094111,
+        "r2": 0.9581354040361224,
+        "coverage": 0.8027395709514915,
+        "avg_half_width": 66.07215490243482
+      },
+      "3": {
+        "rmse": 58.44780375484141,
+        "mae": 40.15208479128312,
+        "mape": 9.576143134474457,
+        "r2": 0.9581118738355723,
+        "coverage": 0.8139186053093338,
+        "avg_half_width": 67.422097287486
+      },
+      "4": {
+        "rmse": 58.79572971029418,
+        "mae": 40.6942763587389,
+        "mape": 9.820340272625588,
+        "r2": 0.9576116892925604,
+        "coverage": 0.8134657836644592,
+        "avg_half_width": 68.8050506699758
+      }
+    },
+    "scratch_linreg": {
+      "rmse": 73.96774191750032,
+      "mae": 53.228731001449255,
+      "mape": 14.423293979755586,
+      "r2": 0.9329128625709482,
+      "final_train_mse": 5563.275499551941,
+      "epochs": 300
+    },
+    "infer_seconds": 0.074835300212726,
+    "infer_rows": 35334,
+    "feature_importance": [
+      {
+        "feature": "traffic_volume_lag1",
+        "importance": 0.6397817730903625
+      },
+      {
+        "feature": "is_peak_period",
+        "importance": 0.1469535529613495
+      },
+      {
+        "feature": "traffic_volume_lag48",
+        "importance": 0.06054940074682236
+      },
+      {
+        "feature": "avg_speed_roll8_mean",
+        "importance": 0.034894466400146484
+      },
+      {
+        "feature": "event_flag",
+        "importance": 0.018687359988689423
+      },
+      {
+        "feature": "road_capacity",
+        "importance": 0.016148896887898445
+      },
+      {
+        "feature": "hour_cos",
+        "importance": 0.01396665908396244
+      },
+      {
+        "feature": "hour_sin",
+        "importance": 0.011136122979223728
+      },
+      {
+        "feature": "avg_speed_roll4_mean",
+        "importance": 0.008670484647154808
+      },
+      {
+        "feature": "dow_cos",
+        "importance": 0.0064986166544258595
+      },
+      {
+        "feature": "traffic_volume_lag2",
+        "importance": 0.006213922519236803
+      },
+      {
+        "feature": "roadwork_flag",
+        "importance": 0.006184609606862068
+      },
+      {
+        "feature": "dow_sin",
+        "importance": 0.003981695044785738
+      },
+      {
+        "feature": "traffic_volume_roll8_mean",
+        "importance": 0.0038879530038684607
+      },
+      {
+        "feature": "public_holiday",
+        "importance": 0.003407285315915942
+      },
+      {
+        "feature": "traffic_volume_roll4_mean",
+        "importance": 0.003169266041368246
+      },
+      {
+        "feature": "traffic_volume_roll4_std",
+        "importance": 0.0022401870228350163
+      },
+      {
+        "feature": "avg_speed_lag1",
+        "importance": 0.0017457024659961462
+      },
+      {
+        "feature": "vc_ratio_lag1",
+        "importance": 0.0013568161521106958
+      },
+      {
+        "feature": "capacity_headroom_lag1",
+        "importance": 0.0012995685683563352
+      },
+      {
+        "feature": "segment_length_km",
+        "importance": 0.0011535356752574444
+      },
+      {
+        "feature": "weather_Clear_lag1",
+        "importance": 0.0010120195802301168
+      },
+      {
+        "feature": "traffic_volume_roll8_std",
+        "importance": 0.0008140294230543077
+      },
+      {
+        "feature": "rainfall_lag1",
+        "importance": 0.0008065307047218084
+      },
+      {
+        "feature": "avg_speed_lag48",
+        "importance": 0.0007663448341190815
+      },
+      {
+        "feature": "days_to_event",
+        "importance": 0.0007095406763255596
+      },
+      {
+        "feature": "avg_speed_lag2",
+        "importance": 0.0005916093359701335
+      },
+      {
+        "feature": "visibility_lag1",
+        "importance": 0.000534963037353009
+      },
+      {
+        "feature": "is_rain_lag1",
+        "importance": 0.0005234795971773565
+      },
+      {
+        "feature": "avg_speed_roll8_std",
+        "importance": 0.0005023807170800865
+      },
+      {
+        "feature": "avg_speed_roll4_std",
+        "importance": 0.0004951310693286359
+      },
+      {
+        "feature": "occupancy_lag1",
+        "importance": 0.0004812351253349334
+      },
+      {
+        "feature": "weather_Cloudy_lag1",
+        "importance": 0.0004437986935954541
+      },
+      {
+        "feature": "temperature_lag1",
+        "importance": 0.00039116060361266136
+      },
+      {
+        "feature": "is_weekend",
+        "importance": 0.0
+      },
+      {
+        "feature": "holiday_peak_interaction",
+        "importance": 0.0
+      },
+      {
+        "feature": "is_low_visibility_lag1",
+        "importance": 0.0
+      },
+      {
+        "feature": "temp_band_lag1",
+        "importance": 0.0
+      },
+      {
+        "feature": "weather_Fog_lag1",
+        "importance": 0.0
+      },
+      {
+        "feature": "weather_Overcast_lag1",
+        "importance": 0.0
+      },
+      {
+        "feature": "weather_Rain_lag1",
+        "importance": 0.0
+      }
+    ],
+    "error_breakdown": {
+      "hour": {
+        "0": 21.83,
+        "1": 19.34,
+        "2": 19.77,
+        "3": 19.27,
+        "4": 22.51,
+        "5": 28.49,
+        "6": 47.39,
+        "7": 74.04,
+        "8": 98.93,
+        "9": 93.75,
+        "10": 70.73,
+        "11": 54.24,
+        "12": 47.35,
+        "13": 48.77,
+        "14": 50.67,
+        "15": 60.3,
+        "16": 78.73,
+        "17": 92.92,
+        "18": 89.61,
+        "19": 75.74,
+        "20": 55.12,
+        "21": 33.7,
+        "22": 24.31,
+        "23": 20.47
+      },
+      "day_of_week": {
+        "Fri": 61.62,
+        "Mon": 62.94,
+        "Sat": 46.31,
+        "Sun": 44.13,
+        "Thu": 67.44,
+        "Tue": 61.87,
+        "Wed": 60.92
+      },
+      "weather": {
+        "Clear": 58.02,
+        "Cloudy": 56.58,
+        "Fog": 50.21,
+        "Overcast": 63.15,
+        "Rain": 66.76
+      }
+    }
+  },
+  "speed": {
+    "selected": "XGBoost",
+    "candidates": [
+      {
+        "model": "Linear Regression",
+        "cv_std": 0.5829562014827335,
+        "params": {},
+        "train_rows": 122543,
+        "fit_seconds": 0.7,
+        "cv_rmse": 4.478527944138598,
+        "test": {
+          "rmse": 3.9948493140894095,
+          "mae": 3.01627375773374,
+          "mape": 9.94942814149101,
+          "r2": 0.8818644729679885
+        }
+      },
+      {
+        "model": "Decision Tree",
+        "cv_std": 0.6369897570665645,
+        "params": {
+          "max_depth": 8
+        },
+        "train_rows": 122543,
+        "fit_seconds": 9.8,
+        "cv_rmse": 4.26937279185518,
+        "test": {
+          "rmse": 3.702196093206674,
+          "mae": 2.8467089186287935,
+          "mape": 8.823429479605743,
+          "r2": 0.8985391363450063
+        }
+      },
+      {
+        "model": "Random Forest",
+        "cv_std": 0.5771004104882067,
+        "params": {
+          "max_depth": 18,
+          "n_estimators": 100
+        },
+        "train_rows": 122543,
+        "fit_seconds": 62.9,
+        "cv_rmse": 3.9757916995611846,
+        "test": {
+          "rmse": 3.5074743855454957,
+          "mae": 2.7045848027203,
+          "mape": 8.471134079570858,
+          "r2": 0.9089313843777962
+        }
+      },
+      {
+        "model": "XGBoost",
+        "cv_std": 0.5083572966881408,
+        "params": {
+          "learning_rate": 0.1,
+          "max_depth": 4,
+          "n_estimators": 300
+        },
+        "train_rows": 122543,
+        "fit_seconds": 36.6,
+        "cv_rmse": 3.8436796529284596,
+        "test": {
+          "rmse": 3.4671121233789544,
+          "mae": 2.671814949932276,
+          "mape": 8.45957256057755,
+          "r2": 0.9110152690621083
+        }
+      }
+    ],
+    "horizons": {
+      "1": {
+        "rmse": 3.4671121233789544,
+        "mae": 2.671814949932276,
+        "mape": 8.45957256057755,
+        "r2": 0.9110152690621083,
+        "coverage": 0.8102394294447275,
+        "avg_half_width": 4.4422506273894315
+      },
+      "2": {
+        "rmse": 3.474160650748993,
+        "mae": 2.68087411402608,
+        "mape": 8.420314904660788,
+        "r2": 0.9106530951032661,
+        "coverage": 0.8175128771155261,
+        "avg_half_width": 4.5413438655492815
+      },
+      "3": {
+        "rmse": 3.4901184578113957,
+        "mae": 2.6949628970625286,
+        "mape": 8.45394486549434,
+        "r2": 0.9098304185943168,
+        "coverage": 0.8180223014660101,
+        "avg_half_width": 4.5870885667926675
+      },
+      "4": {
+        "rmse": 3.484850524708831,
+        "mae": 2.6927174973267047,
+        "mape": 8.459665222652351,
+        "r2": 0.9101024144271005,
+        "coverage": 0.8211920529801324,
+        "avg_half_width": 4.596143419676882
+      }
+    }
+  },
+  "travel_time": {
+    "1": {
+      "rmse": 1.0886139093072789,
+      "mae": 0.39737057401729453,
+      "mape": 7.798818566166518,
+      "r2": 0.8151966496681313,
+      "coverage": 0.7952397124582555
+    },
+    "2": {
+      "rmse": 1.0654607903317075,
+      "mae": 0.3932222662119014,
+      "mape": 7.803955312561819,
+      "r2": 0.8229740122367807,
+      "coverage": 0.7969943963321446
+    },
+    "3": {
+      "rmse": 1.0639961230642807,
+      "mae": 0.39433990444933925,
+      "mape": 7.849833601853915,
+      "r2": 0.8234603857491162,
+      "coverage": 0.7991169977924945
+    },
+    "4": {
+      "rmse": 1.0746207437357458,
+      "mae": 0.39575364140345487,
+      "mape": 7.843842894346966,
+      "r2": 0.8199170810233631,
+      "coverage": 0.8031923925963661
+    }
+  },
+  "congestion": {
+    "selected": "XGBoost",
+    "candidates": [
+      {
+        "model": "Decision Tree",
+        "cv_std": 0.02695851583928796,
+        "params": {
+          "max_depth": 8
+        },
+        "train_rows": 122543,
+        "fit_seconds": 10.3,
+        "test": {
+          "macro_f1": 0.7548392146665382,
+          "accuracy": 0.861747891549216,
+          "precision": {
+            "Free-flow": 0.955,
+            "Moderate": 0.78,
+            "Heavy": 0.606,
+            "Severe": 0.717
+          },
+          "recall": {
+            "Free-flow": 0.942,
+            "Moderate": 0.805,
+            "Heavy": 0.676,
+            "Severe": 0.578
+          },
+          "confusion_matrix": [
+            [
+              20060,
+              1239,
+              1,
+              0
+            ],
+            [
+              949,
+              6858,
+              696,
+              13
+            ],
+            [
+              1,
+              685,
+              2365,
+              448
+            ],
+            [
+              0,
+              15,
+              838,
+              1166
+            ]
+          ]
+        },
+        "cv_macro_f1": 0.7316999425507623
+      },
+      {
+        "model": "Random Forest",
+        "cv_std": 0.015362869690854234,
+        "params": {
+          "max_depth": 18,
+          "n_estimators": 100
+        },
+        "train_rows": 122543,
+        "fit_seconds": 13.3,
+        "test": {
+          "macro_f1": 0.7621404316190232,
+          "accuracy": 0.8730967340238863,
+          "precision": {
+            "Free-flow": 0.962,
+            "Moderate": 0.802,
+            "Heavy": 0.617,
+            "Severe": 0.701
+          },
+          "recall": {
+            "Free-flow": 0.952,
+            "Moderate": 0.833,
+            "Heavy": 0.657,
+            "Severe": 0.586
+          },
+          "confusion_matrix": [
+            [
+              20274,
+              1026,
+              0,
+              0
+            ],
+            [
+              799,
+              7095,
+              602,
+              20
+            ],
+            [
+              0,
+              716,
+              2298,
+              485
+            ],
+            [
+              0,
+              10,
+              826,
+              1183
+            ]
+          ]
+        },
+        "cv_macro_f1": 0.7463242110423484
+      },
+      {
+        "model": "XGBoost",
+        "cv_std": 0.02098417710772211,
+        "params": {
+          "learning_rate": 0.05,
+          "max_depth": 6,
+          "n_estimators": 300
+        },
+        "train_rows": 122543,
+        "fit_seconds": 62.8,
+        "test": {
+          "macro_f1": 0.769019632971358,
+          "accuracy": 0.8773702382973906,
+          "precision": {
+            "Free-flow": 0.965,
+            "Moderate": 0.811,
+            "Heavy": 0.621,
+            "Severe": 0.701
+          },
+          "recall": {
+            "Free-flow": 0.954,
+            "Moderate": 0.838,
+            "Heavy": 0.66,
+            "Severe": 0.609
+          },
+          "confusion_matrix": [
+            [
+              20326,
+              974,
+              0,
+              0
+            ],
+            [
+              739,
+              7134,
+              625,
+              18
+            ],
+            [
+              0,
+              682,
+              2311,
+              506
+            ],
+            [
+              0,
+              6,
+              783,
+              1230
+            ]
+          ]
+        },
+        "cv_macro_f1": 0.7514179052628065
+      },
+      {
+        "model": "SVM",
+        "cv_std": 0.032809274550640484,
+        "params": {
+          "C": 2
+        },
+        "train_rows": 8000,
+        "fit_seconds": 4.6,
+        "test": {
+          "macro_f1": 0.7085356987825437,
+          "accuracy": 0.8453331069225108,
+          "precision": {
+            "Free-flow": 0.95,
+            "Moderate": 0.766,
+            "Heavy": 0.585,
+            "Severe": 0.534
+          },
+          "recall": {
+            "Free-flow": 0.947,
+            "Moderate": 0.793,
+            "Heavy": 0.412,
+            "Severe": 0.748
+          },
+          "confusion_matrix": [
+            [
+              20165,
+              1135,
+              0,
+              0
+            ],
+            [
+              1058,
+              6752,
+              561,
+              145
+            ],
+            [
+              2,
+              881,
+              1442,
+              1174
+            ],
+            [
+              0,
+              49,
+              460,
+              1510
+            ]
+          ]
+        },
+        "cv_macro_f1": 0.7197030519261928
+      }
+    ],
+    "test": {
+      "macro_f1": 0.769019632971358,
+      "accuracy": 0.8773702382973906,
+      "precision": {
+        "Free-flow": 0.965,
+        "Moderate": 0.811,
+        "Heavy": 0.621,
+        "Severe": 0.701
+      },
+      "recall": {
+        "Free-flow": 0.954,
+        "Moderate": 0.838,
+        "Heavy": 0.66,
+        "Severe": 0.609
+      },
+      "confusion_matrix": [
+        [
+          20326,
+          974,
+          0,
+          0
+        ],
+        [
+          739,
+          7134,
+          625,
+          18
+        ],
+        [
+          0,
+          682,
+          2311,
+          506
+        ],
+        [
+          0,
+          6,
+          783,
+          1230
+        ]
+      ]
+    }
+  },
+  "accident": {
+    "selected": "Logistic Regression",
+    "candidates": [
+      {
+        "model": "Logistic Regression",
+        "cv_std": 0.013549778323324796,
+        "params": {
+          "C": 0.1
+        },
+        "train_rows": 122543,
+        "fit_seconds": 4.8,
+        "cv_roc_auc": 0.6258795502730833,
+        "test_roc_auc": 0.6174374572136889
+      },
+      {
+        "model": "Random Forest",
+        "cv_std": 0.02528658347410615,
+        "params": {
+          "max_depth": 8,
+          "n_estimators": 100
+        },
+        "train_rows": 122543,
+        "fit_seconds": 8.9,
+        "cv_roc_auc": 0.5677300126492683,
+        "test_roc_auc": 0.5752788172035864
+      },
+      {
+        "model": "XGBoost",
+        "cv_std": 0.016961493509719254,
+        "params": {
+          "learning_rate": 0.05,
+          "max_depth": 3,
+          "n_estimators": 200
+        },
+        "train_rows": 122543,
+        "fit_seconds": 7.3,
+        "cv_roc_auc": 0.6005293474111029,
+        "test_roc_auc": 0.5807938480761945
+      },
+      {
+        "model": "SVM",
+        "cv_std": 0.011075083324145333,
+        "params": {
+          "C": 0.5
+        },
+        "train_rows": 9151,
+        "fit_seconds": 12.3,
+        "cv_roc_auc": 0.6190601338858738,
+        "test_roc_auc": 0.6120153931023482
+      }
+    ],
+    "test": {
+      "roc_auc": 0.6174374572136889,
+      "threshold": 0.012841810013731428,
+      "precision": 0.026661796932067203,
+      "recall": 0.21220930232558138,
+      "f1": 0.04737183646982479,
+      "alerts_per_1000_windows": 77.48910397917021,
+      "base_rate": 0.009735665364804438,
+      "mean_predicted_probability": 0.00866467785599855
+    }
+  }
+}

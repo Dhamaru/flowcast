@@ -1,0 +1,92 @@
+# FlowCast settings. Every number the pipeline depends on lives here, so a
+# change is one edit and a rerun, not a hunt through the code.
+
+project:
+  name: FlowCast
+  version: "1.0"
+  timezone: Asia/Kolkata      # corridor coordinates are in Delhi; PRD 9.1 wants tz-aware timestamps
+  seed: 42
+
+paths:                        # relative to the flowcast/ folder
+  raw: data/raw
+  interim: data/interim
+  processed: data/processed
+  models: models
+  reports: reports
+  figures: reports/figures
+
+raw_files:
+  traffic: traffic_sensor_log.csv
+  weather: weather_observations.csv
+  calendar: calendar_events.csv
+
+validation:
+  road_id_pattern: "^NL-\\d{3}$"
+  stations: [WS-NORTH, WS-CENTRAL, WS-SOUTH]
+  max_speed_kmh: 200
+  max_occupancy_pct: 100
+
+cleaning:
+  window_minutes: 30
+  short_gap_windows: 2        # gaps up to 1 hour are interpolated; longer gaps use the segment-and-window median
+  zscore_flag: 4.0            # statistically extreme readings are counted and logged, then kept (rush hour is real)
+  congestion_bands: [0.5, 0.8, 1.0]   # V/C cut points -> Free-flow | Moderate | Heavy | Severe
+  congestion_levels: [Free-flow, Moderate, Heavy, Severe]
+  weather_labels:
+    clear: Clear
+    cloudy: Cloudy
+    overcast: Overcast        # not in the PRD vocabulary; kept separate (open question for the client)
+    rain: Rain
+    rainy: Rain
+    fog: Fog
+    foggy: Fog
+
+features:
+  lags: [1, 2, 48]            # 30 min, 1 h, same window yesterday
+  rolling_windows: [4, 8]     # 2 h, 4 h
+  peak_hours: [[7, 10], [16, 19]]
+  low_visibility_m: 1000
+  temperature_bands: [10, 25]
+
+split:                        # fractions of the timeline, in time order, never shuffled
+  train: 0.7
+  validation: 0.1             # early stopping, confidence calibration, alert threshold
+  test: 0.2                   # touched once, for the final scores
+  cv_folds: 3                 # time-series CV inside the training window
+
+horizons: [1, 2, 3, 4]        # windows ahead: 30, 60, 90, 120 min
+confidence: 0.8               # width of the prediction ranges
+
+svm_sample_rows: 8000         # SVM cost grows ~quadratically with rows
+
+grids:                        # hyperparameter search, PRD 11.3
+  regression:
+    Decision Tree: {max_depth: [8, 12, 16]}
+    Random Forest: {n_estimators: [100], max_depth: [12, 18]}
+    XGBoost: {n_estimators: [300], max_depth: [4, 6, 8], learning_rate: [0.05, 0.1]}
+  congestion:
+    Decision Tree: {max_depth: [8, 12, 16]}
+    Random Forest: {n_estimators: [100], max_depth: [12, 18]}
+    XGBoost: {n_estimators: [300], max_depth: [4, 6], learning_rate: [0.05, 0.1]}
+    SVM: {C: [0.5, 1, 2]}
+  accident:
+    Logistic Regression: {C: [0.1, 1, 10]}
+    Random Forest: {n_estimators: [100], max_depth: [8, 12]}
+    XGBoost: {n_estimators: [200], max_depth: [3, 5], learning_rate: [0.05, 0.1]}
+    SVM: {C: [0.5, 1]}
+
+scratch_linreg:
+  learning_rate: 0.01
+  epochs: 300
+
+lstm:
+  grid: {seq_length: [8, 16], hidden_size: [32, 64]}
+  tune_epochs: 8
+  epochs: 60
+  patience: 5
+  layers: 2
+  dropout: 0.2
+  learning_rate: 0.001
+  weight_decay: 0.00001
+  batch_size: 256
+  congestion_loss_weight: 0.5   # how much the congestion head counts against the volume head
