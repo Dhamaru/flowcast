@@ -28,7 +28,26 @@ import ingest  # noqa: E402
 from utils import CONFIG, path  # noqa: E402
 
 LEVELS = CONFIG["cleaning"]["congestion_levels"]
+# PRD 14.3: colour encodes severity the same way in every view. These four colours mean
+# congestion severity and nothing else; other highlights use the non-severity colours below.
 COLORS = {"Free-flow": "#3fb67a", "Moderate": "#e8c13a", "Heavy": "#e8873a", "Severe": "#e0543f"}
+BASE, HIGHLIGHT, TARGET, ACTUAL = "#9cbfe0", "#2c5f8f", "#6b7785", "#8e6cc1"
+
+
+def severity_cell(value):
+    """CSS for one table cell: tinted with its congestion level's colour."""
+    for level, hex_color in COLORS.items():
+        if isinstance(value, str) and value.startswith(level):
+            r, g, b = (int(hex_color[i : i + 2], 16) for i in (1, 3, 5))
+            return f"background-color: rgba({r},{g},{b},0.35); font-weight: 600"
+    return ""
+
+
+def with_severity(frame, columns):
+    """Styled table with congestion columns coloured by severity."""
+    return frame.style.map(severity_cell, subset=[c for c in columns if c in frame])
+
+
 HORIZONS = CONFIG["horizons"]
 VERSION_FILE = f"flowcast_features_v{CONFIG['project']['version']}.parquet"
 
@@ -133,7 +152,7 @@ def predict_rows(df, X, h, bundles):
 
 def bars(frame, x, y, title, target=None, highlight=None, lower_is_better=True):
     """Bar chart of one metric per model, winner highlighted, optional PRD target line."""
-    colors = ["#3fb67a" if m == highlight else "#5aa7e0" for m in frame[x]]
+    colors = [HIGHLIGHT if m == highlight else BASE for m in frame[x]]
     fig = go.Figure(
         go.Bar(
             x=frame[x],
@@ -145,7 +164,7 @@ def bars(frame, x, y, title, target=None, highlight=None, lower_is_better=True):
     )
     if target is not None:
         fig.add_hline(
-            y=target, line_dash="dash", line_color="#e0543f", annotation_text="PRD target"
+            y=target, line_dash="dash", line_color=TARGET, annotation_text="PRD target"
         )
     fig.update_layout(title=title, height=340, margin=dict(t=50))
     return fig
@@ -245,7 +264,11 @@ if view == "Live prediction":
         help=f"Alert at probability ≥ {bundles['accident']['threshold']:.3f} (best F1 on val).",
     )
     m[3].metric("Inference", f"{ms:.0f} ms", help="All 25 segments, all models. PRD limit: 30 s.")
-    st.dataframe(table, hide_index=True, use_container_width=True)
+    st.dataframe(
+        with_severity(table, ["congestion", "actual congestion"]),
+        hide_index=True,
+        use_container_width=True,
+    )
     st.caption(
         "Accident probability is calibrated: across the test window it averages "
         f"{board['accident']['test']['mean_predicted_probability'] * 100:.2f}% vs a real rate of "
@@ -338,13 +361,30 @@ elif view == "Road comparison":
             )
             .reset_index()
         )
-        cols = st.columns(4)
+        mix = (
+            real.groupby("road_id")["congestion_level"]
+            .value_counts(normalize=True)
+            .mul(100)
+            .rename("share")
+            .reset_index()
+        )
+        fig = px.bar(
+            mix,
+            x="road_id",
+            y="share",
+            color="congestion_level",
+            color_discrete_map=COLORS,
+            category_orders={"congestion_level": LEVELS},
+            title="Congestion mix (% of windows)",
+            labels={"share": "", "road_id": "", "congestion_level": ""},
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        cols = st.columns(3)
         for col, (field, title) in zip(
             cols,
             [
                 ("volume", "Mean volume"),
                 ("speed", "Mean speed km/h"),
-                ("heavy_or_severe_pct", "% windows Heavy/Severe"),
                 ("travel_time_spread", "Reliability: travel-time spread (min)"),
             ],
         ):
@@ -463,13 +503,15 @@ elif view == "Model performance":
             px.bar(x=s.index, y=s.values, title=title, labels={"x": "", "y": "RMSE"}),
             use_container_width=True,
         )
-    cm = pd.DataFrame(cong["test"]["confusion_matrix"], index=LEVELS, columns=LEVELS)
+    # cell shading = row count (blues); the class labels carry the severity colours
+    tinted = [f"<span style='color:{COLORS[lvl]}'><b>{lvl}</b></span>" for lvl in LEVELS]
+    cm = pd.DataFrame(cong["test"]["confusion_matrix"], index=tinted, columns=tinted)
     st.plotly_chart(
         px.imshow(
             cm,
             text_auto=True,
             color_continuous_scale="Blues",
-            labels=dict(x="predicted", y="actual"),
+            labels=dict(x="predicted", y="actual", color="windows"),
             title="Congestion confusion matrix",
         ),
         use_container_width=True,
@@ -534,7 +576,7 @@ elif view == "Forecast visualisation":
                     x=t["timestamp"], y=t["pred"], name="predicted", line=dict(color="#5aa7e0")
                 ),
                 go.Scatter(
-                    x=t["timestamp"], y=t["actual"], name="actual", line=dict(color="#e8a93a")
+                    x=t["timestamp"], y=t["actual"], name="actual", line=dict(color=ACTUAL)
                 ),
             ]
         )
@@ -582,7 +624,7 @@ elif view == "Prediction confidence":
         barmode="group",
         title="Coverage on the test window",
     )
-    fig.add_hline(y=80, line_dash="dash", line_color="#e0543f")
+    fig.add_hline(y=80, line_dash="dash", line_color=TARGET)
     st.plotly_chart(fig, use_container_width=True)
     vb = cov[cov["target"] == "traffic_volume"]
     st.plotly_chart(
@@ -685,7 +727,9 @@ elif view == "Forecast a segment":
                 "model": f"traffic_volume_h{h}.pkl · {p['model_version']}",
             }
         )
-    st.dataframe(pd.DataFrame(out), hide_index=True, use_container_width=True)
+    st.dataframe(
+        with_severity(pd.DataFrame(out), ["congestion"]), hide_index=True, use_container_width=True
+    )
 
 elif view == "Upload data":
     st.header("Upload data")
@@ -739,7 +783,11 @@ elif view == "Upload data":
             result = pd.concat(
                 [ready[["road_id", "timestamp", "traffic_volume", "congestion_level"]], p], axis=1
             )
-            st.dataframe(result.round(3), hide_index=True, use_container_width=True)
+            st.dataframe(
+                with_severity(result.round(3), ["congestion_level", "congestion"]),
+                hide_index=True,
+                use_container_width=True,
+            )
             st.download_button(
                 "Download predictions (CSV)",
                 result.to_csv(index=False),
