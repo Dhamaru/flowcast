@@ -343,6 +343,9 @@ def run(traffic, weather, calendar, traffic_rejects):
     traffic = fill_missing_traffic(traffic, stats)
     traffic = derive_congestion(traffic, stats)
     traffic, weather = harmonise_categories(traffic, weather, stats)
+    # PRD 16: data/interim holds the cleaned, pre-merge tables
+    for name, table in [("traffic", traffic), ("weather", weather), ("calendar", calendar)]:
+        table.to_csv(path("interim", f"{name}_clean.csv"), index=False)
     merged = merge_sources(traffic, weather, calendar, stats)
     final_checks(merged, stats)
 

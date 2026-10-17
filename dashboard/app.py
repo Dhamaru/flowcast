@@ -81,7 +81,7 @@ def load_table():
 @st.cache_data
 def load_test_predictions():
     """Test-window predictions with their ranges, written by M5."""
-    return pd.read_parquet(path("processed", "test_predictions.parquet"))
+    return pd.read_parquet(path("reports", "test_predictions.parquet"))
 
 
 @st.cache_data
@@ -174,7 +174,7 @@ def bars(frame, x, y, title, target=None, highlight=None, lower_is_better=True):
 st.set_page_config(page_title="FlowCast", layout="wide")
 needed = [
     path("processed", VERSION_FILE),
-    path("processed", "test_predictions.parquet"),
+    path("reports", "test_predictions.parquet"),
     path("reports", "scoreboard.json"),
     path("models", "accident_h1.pkl"),
 ]
@@ -741,13 +741,13 @@ elif view == "Upload data":
     )
     file = st.file_uploader("Traffic CSV (traffic_sensor_log format)", type="csv")
     sample = st.button("Use the sample file (30–31 May 2025)")
-    source = (
-        file
-        if file is not None
-        else (path("processed").parent / "sample_upload.csv" if sample else None)
-    )
-    if source is not None:
-        raw = pd.read_csv(source)
+    raw = None
+    if file is not None:
+        raw = pd.read_csv(file)
+    elif sample:  # built from the raw log on demand, so no extra file sits outside the PRD layout
+        log_ = pd.read_csv(path("raw", CONFIG["raw_files"]["traffic"]))
+        raw = log_[log_["date"].isin(["2025-05-30", "2025-05-31"])]
+    if raw is not None:
         try:
             traffic, rejects = ingest.validate_traffic(raw)
         except ValueError as e:

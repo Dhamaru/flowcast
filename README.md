@@ -9,8 +9,10 @@ Built to `Imported/FlowCast_PRD.docx` v1.0.
 ## Setup (one command)
 
 ```
-pip install -r flowcast/requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
+pip install -r flowcast/requirements.txt
 ```
+
+(The CPU-only PyTorch index is set inside `requirements.txt`.)
 
 Built and tested on Python 3.13. The PRD names 3.11; nothing here relies on a 3.12+ feature, but 3.11 has not been tested.
 
@@ -36,15 +38,17 @@ pytest flowcast/tests
 streamlit run flowcast/dashboard/app.py
 ```
 
+Style check (PEP 8, with the 99-column limit PEP 8 allows teams to agree on):
+`pycodestyle --max-line-length=99 --ignore=E203,W503 flowcast/src flowcast/dashboard flowcast/tests`
+
 ## Layout (PRD section 16)
 
 ```
 flowcast/
 ├── data/
 │   ├── raw/            source tables as delivered (read-only)
-│   ├── interim/        rows quarantined at ingestion, with the reason
-│   ├── processed/      versioned clean + feature tables, manifest.json, test predictions
-│   └── sample_upload.csv   2 days of raw readings for the dashboard's upload tool
+│   ├── interim/        cleaned, pre-merge tables (traffic, weather, calendar) + rows quarantined at ingestion
+│   └── processed/      analysis-ready, versioned dataset: clean + feature tables, manifest.json
 ├── notebooks/          01_eda, 02_cleaning, 03_modelling
 ├── src/
 │   ├── ingest.py       M1  load, schema, types, ranges, quarantine
@@ -55,14 +59,18 @@ flowcast/
 │   ├── evaluate.py         metrics, thresholds, error analysis, model cards
 │   └── utils.py            config, paths, logging, time split, hashing
 ├── models/             trained models + model_cards.md / .json
-├── reports/            data_quality.md, final_report.md, scoreboard.json, dl_result.json, figures/
+├── reports/            data_quality.md, figures/, final_report.md, scoreboard.json, dl_result.json, test predictions
 ├── dashboard/app.py    M7
 ├── tests/
 ├── requirements.txt
 ├── config.yaml
-├── run_pipeline.py
+├── run_pipeline.py     the one-command entry point (PRD 3.3 / NFR reproducibility)
 └── README.md
 ```
+
+Everything matches the PRD's section 16 tree. `run_pipeline.py` is the only addition: the PRD requires a one-command
+rerun but its tree doesn't name the script. The dashboard's upload sample is built from `data/raw/` on demand rather
+than stored as a separate file.
 
 ## Where to read the results
 

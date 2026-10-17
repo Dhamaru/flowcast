@@ -1,4 +1,5 @@
-# Python 3.13. Install: pip install -r flowcast/requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
+# Python 3.13. Install: pip install -r flowcast/requirements.txt
+--extra-index-url https://download.pytorch.org/whl/cpu
 numpy==2.5.3
 pandas==3.0.6
 scikit-learn==1.9.1

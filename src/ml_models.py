@@ -507,7 +507,7 @@ def run(df, version, data_sha):
     ev.plot_error_analysis(h1, "actual", "pred", breakdown, "traffic volume")
 
     pd.concat([volume_preds, speed_preds, tt_preds]).to_parquet(
-        path("processed", "test_predictions.parquet")
+        path("reports", "test_predictions.parquet")  # model output, not part of the dataset
     )
     ev.write_model_cards(cards)
     return board

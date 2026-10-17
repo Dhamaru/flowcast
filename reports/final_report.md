@@ -195,7 +195,7 @@ the deep model did not earn its added complexity; XGBoost is the production volu
 | Performance ≤ 30 s | 35,334 predictions in 0.075 s; dashboard shows per-request time |
 | Scalability ≥ 150k rows in 16 GB | 181,200 rows, runs on a laptop CPU |
 | Reproducibility | Seeded; one command; config in `config.yaml`; feature table hashed into every model version |
-| Maintainability | Modules follow PRD 16; PEP 8 (99-column limit, `setup.cfg`); every function documented; `pytest flowcast/tests` |
+| Maintainability | Modules follow PRD 16; PEP 8 (99-column limit, check command in README); every function documented; `pytest flowcast/tests` |
 | Usability ≤ 3 clicks | Role picker lands each role on its view; any view is 2 clicks away |
 | Reliability, 0 silent drops | Rejects written with reasons to `data/interim/`; every stage logs to `reports/pipeline.log` |
 | Portability | `requirements.txt` pinned; one install command |

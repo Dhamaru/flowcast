@@ -157,7 +157,8 @@ def run(clean_df):
     out = path("processed", f"flowcast_features_v{version}.csv")
     df.to_csv(out, index=False)
     # compact copy for the dashboard: the CSV is over GitHub's 100 MB file limit
-    pd.read_csv(out, parse_dates=["timestamp"]).to_parquet(out.with_suffix(".parquet"), index=False)
+    table = pd.read_csv(out, parse_dates=["timestamp"])
+    table.to_parquet(out.with_suffix(".parquet"), index=False)
     warmup = df[HISTORY_COLS].isna().any(axis=1).sum()
     log.info(
         "%d rows x %d columns, %d model features; %d warm-up rows lack full history",
