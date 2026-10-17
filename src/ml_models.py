@@ -183,7 +183,7 @@ def tune_and_compare(task, X, y, idx, scoring):
         )
         results.append(result)
         fitted[name] = search.best_estimator_
-    best = max(results, key=lambda r: r["cv_mean"])["model"]
+    best = ev.select_winner(results)
     log.info("  selected on CV: %s", best)
     return results, fitted, best
 
@@ -484,7 +484,9 @@ def run(df, version, data_sha):
     board["volume"], volume_model, volume_preds = regression_target(
         df, "traffic_volume", version, data_sha, cards, scratch=True
     )
-    board["speed"], _, speed_preds = regression_target(df, "avg_speed", version, data_sha, cards)
+    board["speed"], speed_model, speed_preds = regression_target(
+        df, "avg_speed", version, data_sha, cards
+    )
     board["travel_time"], tt_preds = travel_time_from_speed(df, speed_preds, version)
     board["congestion"] = congestion_target(df, version, data_sha, cards)
     board["accident"] = accident_target(df, version, data_sha, cards)
@@ -494,14 +496,14 @@ def run(df, version, data_sha):
     volume_model.predict(horizon_features(df, 1).loc[h1.index])
     board["volume"]["infer_seconds"] = time.perf_counter() - start
     board["volume"]["infer_rows"] = len(h1)
-    step = volume_model.named_steps["model"]
-    weights = (
-        step.feature_importances_ if hasattr(step, "feature_importances_") else np.abs(step.coef_)
+    # PRD 14.1: ranked drivers from the tree ensembles, for every tree-based winner
+    board["volume"]["feature_importance"] = ev.feature_importance(volume_model, FEATURE_COLS)
+    board["speed"]["feature_importance"] = ev.feature_importance(speed_model, FEATURE_COLS)
+    with open(path("models", "congestion_h1.pkl"), "rb") as f:
+        congestion_model = pickle.load(f)["model"]
+    board["congestion"]["feature_importance"] = ev.feature_importance(
+        congestion_model, FEATURE_COLS
     )
-    board["volume"]["feature_importance"] = [
-        {"feature": f, "importance": float(w)}
-        for f, w in sorted(zip(FEATURE_COLS, weights), key=lambda x: -x[1])
-    ]
     breakdown = ev.error_breakdown(h1.rename(columns={"actual": "y", "pred": "p"}), "y", "p")
     board["volume"]["error_breakdown"] = breakdown
     ev.plot_error_analysis(h1, "actual", "pred", breakdown, "traffic volume")

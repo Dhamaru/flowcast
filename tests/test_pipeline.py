@@ -188,3 +188,14 @@ def test_sequences_take_the_n_rows_before_the_target():
     values = np.arange(20, dtype=float).reshape(-1, 1)
     seq = build_sequences(values, np.array([10]), 4)
     assert seq[0].ravel().tolist() == [6, 7, 8, 9]
+
+
+def test_winner_is_best_cv_score_not_test_score():
+    results = [{"model": "A", "cv_mean": -60.0}, {"model": "B", "cv_mean": -58.0}]
+    assert evaluate.select_winner(results) == "B"  # sklearn scores: higher is better
+
+
+def test_head_to_head_reports_gap_and_verdict():
+    c = evaluate.head_to_head("XGBoost", 58.0, {"rmse": 60.9})
+    assert c["beats_classical"] is False
+    assert c["gap_pct"] == pytest.approx(5.0)

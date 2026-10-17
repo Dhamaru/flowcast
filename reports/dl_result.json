@@ -62,6 +62,14 @@
           0.20463451743125916,
           0.20657356083393097
         ]
+      },
+      "vs_classical": {
+        "classical_model": "XGBoost",
+        "classical_rmse": 58.28633430215036,
+        "deep_rmse": 61.85741957497692,
+        "rmse_gap": 3.571085272826565,
+        "gap_pct": 6.126796813665492,
+        "beats_classical": false
       }
     },
     "BiLSTM": {
@@ -97,6 +105,14 @@
           0.2154577076435089,
           0.21009546518325806
         ]
+      },
+      "vs_classical": {
+        "classical_model": "XGBoost",
+        "classical_rmse": 58.28633430215036,
+        "deep_rmse": 60.44981561474073,
+        "rmse_gap": 2.1634813125903705,
+        "gap_pct": 3.7118157085932113,
+        "beats_classical": false
       }
     }
   }

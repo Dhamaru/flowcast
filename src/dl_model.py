@@ -201,8 +201,13 @@ def run(df, board, version, data_sha):
         model, history, _ = train(data, best["hidden_size"], bidirectional, DL["epochs"])
         metrics, pred = evaluate_model(model, data, scalers, df, idx)
         metrics["epochs_run"] = len(history["val"])
-        metrics["beats_classical"] = metrics["rmse"] < classical_rmse
-        result["variants"][label] = {"test": metrics, "history": history}
+        comparison = ev.head_to_head(classical["selected"], classical_rmse, metrics)
+        metrics["beats_classical"] = comparison["beats_classical"]
+        result["variants"][label] = {
+            "test": metrics,
+            "history": history,
+            "vs_classical": comparison,
+        }
         log.info(
             "%s: RMSE %.2f MAPE %.2f%% congestion macro-F1 %.3f (%d epochs) vs %s RMSE %.2f",
             label,

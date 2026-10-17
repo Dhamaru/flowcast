@@ -434,6 +434,32 @@ elif view == "Model performance":
         ),
         use_container_width=True,
     )
+    spd = board["speed"]
+    sf = pd.DataFrame(
+        [{"model": c["model"], "rmse": c["test"]["rmse"]} for c in spd["candidates"]]
+    ).sort_values("rmse")
+    tt = pd.DataFrame(
+        [
+            {"horizon": f"{int(k) * 30} min", "rmse": v["rmse"], "mape": v["mape"]}
+            for k, v in board["travel_time"].items()
+        ]
+    )
+    s1, s2 = st.columns(2)
+    s1.plotly_chart(
+        bars(sf, "model", "rmse", "Average speed · test RMSE (km/h)", highlight=spd["selected"]),
+        use_container_width=True,
+    )
+    s2.plotly_chart(
+        px.bar(
+            tt,
+            x="horizon",
+            y="rmse",
+            text_auto=".2f",
+            hover_data={"mape": ":.2f"},
+            title="Travel time (60 × length ÷ predicted speed) · RMSE in minutes",
+        ),
+        use_container_width=True,
+    )
     c, d_ = st.columns(2)
     cong = board["congestion"]
     cf = pd.DataFrame(
@@ -525,14 +551,33 @@ elif view == "Model performance":
 elif view == "Feature importance":
     st.header("Feature importance")
     st.caption(
-        f"What the volume model ({board['volume']['selected']}) relies on. Importance shows "
-        "model uses to predict, not what causes traffic."
+        "Ranked drivers from each tree-ensemble model. Importance shows what a model uses to "
+        "predict, not what causes traffic. The accident model is logistic regression, not a "
+        "tree ensemble, so it has no entry here."
     )
-    imp = pd.DataFrame(board["volume"]["feature_importance"]).head(15).sort_values("importance")
-    st.plotly_chart(
-        px.bar(imp, x="importance", y="feature", orientation="h", height=520),
-        use_container_width=True,
-    )
+    ensembles = {
+        "Traffic volume": "volume",
+        "Average speed (and travel time)": "speed",
+        "Congestion level": "congestion",
+    }
+    choice = st.radio("Model", list(ensembles), horizontal=True)
+    key = ensembles[choice]
+    imp = pd.DataFrame(board[key].get("feature_importance", []))
+    if imp.empty:
+        st.info("No importances saved for this model. Rerun the pipeline to generate them.")
+    else:
+        imp = imp.head(15).sort_values("importance")
+        st.plotly_chart(
+            px.bar(
+                imp,
+                x="importance",
+                y="feature",
+                orientation="h",
+                height=520,
+                title=f"{choice} · {board[key]['selected']} · top 15",
+            ),
+            use_container_width=True,
+        )
 
 elif view == "Forecast visualisation":
     st.header("Forecast visualisation")
@@ -680,11 +725,57 @@ elif view == "Weather vs traffic":
         .mean()
         .reset_index()
     )
-    st.plotly_chart(
+    vis = (
+        w.groupby(
+            pd.cut(
+                w["visibility"],
+                [-0.01, 1000, 3000, 6000, np.inf],
+                labels=["< 1 km", "1–3 km", "3–6 km", "6+ km"],
+            ),
+            observed=True,
+        )["avg_speed"]
+        .mean()
+        .reset_index()
+    )
+    r1, r2 = st.columns(2)
+    r1.plotly_chart(
         px.bar(rain, x="rainfall", y="avg_speed", title="Mean speed by rainfall"),
         use_container_width=True,
     )
+    r2.plotly_chart(
+        px.bar(vis, x="visibility", y="avg_speed", title="Mean speed by visibility"),
+        use_container_width=True,
+    )
     st.dataframe(by.round(1), hide_index=True)
+
+    st.subheader("Observed vs predicted flow by weather (test window)")
+    tp = load_test_predictions()
+    tp = tp[(tp["target"] == "traffic_volume") & (tp["horizon"] == 1)]
+    tp = tp.merge(df[["road_id", "timestamp", "is_peak_period"]], on=["road_id", "timestamp"])
+    if peak:
+        tp = tp[tp["is_peak_period"] == 1]
+    flow = (
+        tp.groupby("weather_condition")[["actual", "pred"]]
+        .mean()
+        .rename(columns={"actual": "observed", "pred": "predicted"})
+        .reset_index()
+        .melt(id_vars="weather_condition", var_name="", value_name="mean volume")
+    )
+    st.plotly_chart(
+        px.bar(
+            flow,
+            x="weather_condition",
+            y="mean volume",
+            color="",
+            barmode="group",
+            color_discrete_map={"observed": ACTUAL, "predicted": BASE},
+        ),
+        use_container_width=True,
+    )
+    st.caption(
+        "Close bars mean the model handles that weather well. Weather enters the model as the "
+        "last observed reading, so a sudden change of weather is where gaps would show."
+    )
 
 # ------------------------------------------------------------------ tools
 elif view == "Forecast a segment":

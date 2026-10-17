@@ -153,6 +153,34 @@ def plot_confusion(matrix, labels):
     plt.close(fig)
 
 
+# ---------------------------------------------------------------- comparison (PRD 11.3, 12.4)
+def select_winner(results, score_key="cv_mean"):
+    """Name of the candidate with the best CV score. Scores are higher-is-better (sklearn)."""
+    return max(results, key=lambda r: r[score_key])["model"]
+
+
+def head_to_head(classical_name, classical_rmse, deep_metrics):
+    """Deep model vs the classical winner on the same test rows: RMSE gap and verdict."""
+    gap = deep_metrics["rmse"] - classical_rmse
+    return {
+        "classical_model": classical_name,
+        "classical_rmse": classical_rmse,
+        "deep_rmse": deep_metrics["rmse"],
+        "rmse_gap": gap,
+        "gap_pct": gap / classical_rmse * 100,
+        "beats_classical": gap < 0,
+    }
+
+
+def feature_importance(pipeline_model, features):
+    """Importances of a fitted tree-ensemble pipeline, largest first (empty if not trees)."""
+    step = pipeline_model.named_steps["model"]
+    if not hasattr(step, "feature_importances_"):
+        return []
+    pairs = sorted(zip(features, step.feature_importances_), key=lambda x: -x[1])
+    return [{"feature": f, "importance": float(w)} for f, w in pairs]
+
+
 def write_model_cards(cards):
     """models/model_cards.json + models/model_cards.md - one card per saved model (PRD 13.4)."""
     path("models", "model_cards.json").write_text(json.dumps(cards, indent=2, default=str))
