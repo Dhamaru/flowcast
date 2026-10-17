@@ -1,11 +1,20 @@
 """
-FlowCast pipeline, raw CSVs to trained models, in PRD order:
-    M1 ingest -> M2 clean -> M3 features -> M5 classical ML -> M6 deep learning
-(M4, EDA, lives in notebooks/01_eda.ipynb and reads the M2/M3 outputs.)
+run_pipeline.py - START HERE. Runs the whole project, from raw CSVs to trained models.
 
-    python flowcast/run_pipeline.py              everything
-    python flowcast/run_pipeline.py --skip-dl    stop after M5 (M6 is the slowest stage)
-    python flowcast/run_pipeline.py --from ml    retrain only, reusing the saved feature table
+    python flowcast/run_pipeline.py              everything (about 15-20 minutes)
+    python flowcast/run_pipeline.py --skip-dl    skip the neural network (the slowest part)
+    python flowcast/run_pipeline.py --from ml    only retrain models, reuse the saved features
+
+THE STEPS, AND THE FILE THAT DOES EACH ONE
+    M1  src/ingest.py     load the 3 raw CSVs and check every row
+    M2  src/clean.py      fix bad values, fill gaps, join the tables     -> data/processed/
+    M3  src/features.py   add the 41 columns the models learn from
+    M5  src/ml_models.py  train and compare the classical models         -> models/
+    M6  src/dl_model.py   train the LSTM and compare it with the best classical model
+    (M4, exploring the data, is in notebooks/01_eda.ipynb.)
+
+Every step prints what it did and saves it to reports/pipeline.log.
+Run it twice and you get the same numbers: every random choice is seeded.
 """
 
 import argparse
@@ -15,8 +24,9 @@ import sys
 import time
 import warnings
 
+# Let Python find the files in src/ (ingest.py, clean.py, ...) so they can be imported below.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "src"))
-warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=FutureWarning)  # hide "will change in future" notices
 
 import pandas as pd  # noqa: E402
 
@@ -37,11 +47,14 @@ began = time.perf_counter()
 features_file = path("processed", f"flowcast_features_v{CONFIG['project']['version']}.csv")
 
 if args.start == "raw":
+    # M1 -> M2 -> M3: each step's output is the next step's input.
     features.run(clean.run(*ingest.run()))
-df = pd.read_csv(
-    features_file, parse_dates=["timestamp"]
-)  # read back: the exact file the hash describes
+
+# Read the feature table back from disk, so the models train on exactly the file we fingerprint.
+df = pd.read_csv(features_file, parse_dates=["timestamp"])
 data_sha = file_hash(features_file)
+# The model version includes the data's fingerprint, e.g. "1.0-5bb519c5". New data -> new version,
+# so every prediction can be traced to the exact data its model was trained on.
 version = f"{CONFIG['project']['version']}-{data_sha[:8]}"
 log.info("model version %s (features sha256 %s)", version, data_sha)
 

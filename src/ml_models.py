@@ -1,18 +1,33 @@
 """
-M5 - Classical ML Engine (PRD FR-07, FR-08, FR-10, FR-11, FR-12, section 11).
+ml_models.py - M5: train the classical machine-learning models and pick the best.
 
-For each target: grid-search every candidate with time-series cross-validation
-inside the training window, pick the winner on its CV score (never on test),
-then score everything once on the untouched test window.
+WHAT GETS PREDICTED
+    traffic_volume    a number   -> regression,      30 / 60 / 90 / 120 min ahead
+    avg_speed         a number   -> regression,      30 / 60 / 90 / 120 min ahead
+    travel_time       a number   -> not trained: 60 x road length / predicted speed
+    congestion_level  4 labels   -> classification,  next 30 min
+    accident risk     yes / no   -> classification,  next 30 min, as a probability
 
-  traffic_volume, avg_speed  regression, 1-4 windows ahead (PRD 3.1)
-  travel_time                60 x segment length / predicted speed (PRD 11.1)
-  congestion_level           4-class, next window
-  accident risk              binary, next window, calibrated probability + alert threshold
+THE MODELS COMPARED (simplest first)
+    Linear / Logistic Regression  one weight per feature, added up
+    Decision Tree                 a chain of yes/no questions, e.g. "lag1 <= 490?"
+    Random Forest                 100 trees on random slices of the data, averaged
+    XGBoost                       trees built one after another, each fixing the last one's errors
+    SVM                           draws the widest possible boundary between classes
 
-Every model is saved as a sklearn Pipeline, so any scaling it needs is fitted
-inside the CV folds and travels with the model. Feeding unscaled data to a
-model trained on scaled data (the old training/serving-skew bug) can't happen.
+HOW THE WINNER IS CHOSEN (the part beginners most often get wrong)
+    1. Split by TIME: first 70% train, next 10% validation, last 20% test. Never shuffle.
+    2. For each model, try a few settings (a "grid") with cross-validation INSIDE the
+       training data: train on weeks 1-4 and check on week 5, then 1-5 and check on 6...
+    3. Pick the model with the best cross-validation score.
+    4. Only then look at the test window, once, to report how good it really is.
+    If you pick the model by its test score, the test set stops being a fair exam.
+
+Each model is saved as a Pipeline: any scaling step is saved together with the model,
+so it can't be forgotten later (that mistake once made every accident risk show 0%).
+
+Also here: ScratchLinearRegression, the same idea as LinearRegression but written by hand
+with NumPy, to see how training works inside (the PRD asks for this once).
 """
 
 import pickle
@@ -56,15 +71,19 @@ class ScratchLinearRegression:
 
     def fit(self, X, y):
         """Run gradient descent on X, y and record the loss each epoch."""
-        n, k = X.shape
-        self.w, self.b = np.zeros(k), 0.0
+        n, k = X.shape  # n rows, k features
+        self.w, self.b = np.zeros(k), 0.0  # start with every weight at 0
         for epoch in range(self.epochs):
+            # 1. predict with the current weights and see how wrong each prediction is
             error = X @ self.w + self.b - y
-            loss = np.mean(error**2)
+            loss = np.mean(error**2)  # mean squared error: one number for "how wrong overall"
             if not np.isfinite(loss):  # learning rate too high: stop instead of returning garbage
                 log.info("scratch linreg diverged at epoch %d", epoch)
                 break
             self.loss_history.append(float(loss))
+            # 2. the gradient says which way each weight should move to lower the loss;
+            #    step that way, by a small amount (the learning rate). Repeat every epoch.
+            #    Too big a step overshoots: with lr = 0.1 the loss blew up to ~10^100.
             self.w -= self.learning_rate * (2 / n) * (X.T @ error)
             self.b -= self.learning_rate * (2 / n) * error.sum()
         return self
@@ -103,6 +122,9 @@ def candidates(task):
 
 def pipeline(name, estimator):
     """Wrap a model in a Pipeline, with a scaler first if it needs one."""
+    # Linear models and SVM compare features by size, so a column in thousands (volume)
+    # would drown one between 0 and 1 (rain flag). StandardScaler puts every column on the
+    # same scale. Tree models ask "is x <= 490?" and don't care about scale.
     steps = [("scale", StandardScaler())] if name in NEEDS_SCALING else []
     return Pipeline(steps + [("model", estimator)])
 
@@ -115,6 +137,8 @@ def frames(df, target, h=1):
     Indexes are in time order, which TimeSeriesSplit relies on.
     """
     X = horizon_features(df, h)
+    # Usable rows: every feature present, and a REAL reading as the answer. Rebuilt windows
+    # (is_imputed = 1) help with history, but a model must never learn from a filled-in guess.
     ok = X.notna().all(axis=1) & df[target].notna() & (df["is_imputed"] == 0)
     order = df.loc[ok].sort_values(["timestamp", "road_id"]).index
     train_end, val_end = split_cutoffs(df["timestamp"])
@@ -423,8 +447,10 @@ def accident_target(df, version, data_sha, cards):
             y.loc[idx["test"]].to_numpy(), scores(fitted[r["model"]], X.loc[idx["test"]]), 0.5
         )["roc_auc"]
     model = fitted[best]
-    # Class weighting inflates scores, so the raw score is a rank, not a probability.
-    # Platt scaling on validation maps it to an honest probability without changing the ranking.
+    # Only ~1 window in 100 has an accident. class_weight="balanced" (see candidates()) makes
+    # the model take those rare cases seriously, but it also pushes every score up, so a raw
+    # score of 0.37 does NOT mean a 37% chance. "Calibration" learns, on the validation data,
+    # how to turn the raw score into a real probability (average 0.87% vs the true 0.97%).
     val_scores = scores(model, X.loc[idx["val"]]).reshape(-1, 1)
     calibrator = LogisticRegression().fit(val_scores, y.loc[idx["val"]].to_numpy())
     val_prob = calibrator.predict_proba(val_scores)[:, 1]

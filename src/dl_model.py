@@ -1,17 +1,30 @@
 """
-M6 - Deep-Learning Engine (PRD FR-09, section 12).
+dl_model.py - M6: a neural network (LSTM) that reads the recent past as a sequence.
 
-A recurrent sequence model trained from scratch (random init, no pretrained
-weights), benchmarked head-to-head against the classical winner from M5.
+THE IDEA
+    The classical models get the past handed to them as ready-made columns (lag1, lag48,
+    rolling averages). An LSTM instead reads the raw readings of the last N windows one
+    by one, in order, and learns for itself which parts of that history matter.
+    "LSTM" = Long Short-Term Memory: a network with a memory it updates at each step.
 
-  input   the last N windows of one segment, each a vector of scaled readings
-  core    2 LSTM layers, dropout between them (PRD 12.1)
-  heads   next-window volume (regression) + congestion class (multi-task, PRD 12.1)
-  loss    MSE(volume) + weight x cross-entropy(congestion)       (PRD 12.2)
-  control dropout, early stopping, LR reduction on plateau, weight decay (PRD 12.3)
+WHAT IT LOOKS LIKE
+    input      the last 16 windows (8 hours) of one road, 11 readings per window
+               (volume, speed, occupancy, rain, hour of day, ...), all scaled to similar sizes
+    LSTM       2 layers that read the 16 steps in order and summarise them
+    two heads  one predicts next window's volume (regression),
+               one predicts next window's congestion level (classification)
 
-A bidirectional variant is trained for comparison. Reading the input window in
-both directions is safe here: the whole window is in the past.
+HOW TRAINING WORKS
+    The data is fed in small batches of 256. After each pass through all the training data
+    (one "epoch"), the score on the validation data is checked. If it hasn't improved for
+    5 epochs, training stops and the best version is kept ("early stopping"). That stops
+    the network memorising the training data instead of learning general patterns.
+
+THE RESULT
+    It is tested on exactly the same rows as XGBoost. It came in about 3.7% worse, so the
+    simpler XGBoost model is the one used. "The fancier model didn't help" is a valid result.
+    A "BiLSTM" (reads the window forwards and backwards) is also tried; that's fine here
+    because the whole window is already in the past.
 """
 
 import itertools
@@ -81,6 +94,8 @@ def build_sequences(values, rows, n):
     The feature table is sorted by segment then time on a complete grid, so
     "the n rows before" are exactly the n windows before, within the same segment.
     """
+    # Example with n = 4 and target row 10: rows[:, None] + [-4, -3, -2, -1] -> rows 6, 7, 8, 9.
+    # Doing this for every target at once gives a 3-D block: (targets, 4 steps, features).
     return values[rows[:, None] + np.arange(-n, 0)[None, :]]
 
 
@@ -92,10 +107,11 @@ def prepare(df, idx, n):
             "window crosses segments"
         )
     train_rows = df.iloc[positions["train"]]
-    zscore = StandardScaler().fit(
-        train_rows[UNBOUNDED]
-    )  # fit on training rows only: no test statistics leak in
-    minmax = MinMaxScaler().fit(train_rows[BOUNDED])
+    # Neural networks learn badly when one input is in thousands and another is 0 or 1, so
+    # every input is rescaled. The scalers learn their numbers from TRAINING rows only:
+    # using test rows here would quietly leak information about the test window.
+    zscore = StandardScaler().fit(train_rows[UNBOUNDED])  # -> average 0, spread 1
+    minmax = MinMaxScaler().fit(train_rows[BOUNDED])  # -> squeezed into 0..1
     values = np.hstack([zscore.transform(df[UNBOUNDED]), minmax.transform(df[BOUNDED])]).astype(
         np.float32
     )
@@ -126,16 +142,18 @@ def train(data, hidden, bidirectional, epochs):
     Xv, yv, cv = data["val"]
     best, best_state, wait, history = np.inf, None, 0, {"train": [], "val": []}
     for epoch in range(epochs):
-        model.train()
+        model.train()  # training mode: dropout is switched on
         order, total = torch.randperm(len(X)), 0.0
         for start in range(0, len(X), DL["batch_size"]):
-            b = order[start : start + DL["batch_size"]]
-            vol, logits = model(X[b])
+            b = order[start : start + DL["batch_size"]]  # the next 256 sequences
+            vol, logits = model(X[b])  # 1. predict
+            # 2. measure how wrong: squared error for volume + cross-entropy for congestion
             loss = mse(vol, y[b]) + w * ce(logits, c[b])
-            opt.zero_grad()
-            loss.backward()
-            opt.step()
+            opt.zero_grad()  # 3. clear the previous step's gradients
+            loss.backward()  # 4. work out how each weight affected the loss
+            opt.step()  # 5. nudge every weight to lower the loss
             total += loss.item() * len(b)
+        # After each epoch, score the validation data (never trained on) to decide when to stop.
         model.eval()
         with torch.no_grad():
             vol, logits = model(Xv)

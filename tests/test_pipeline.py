@@ -1,4 +1,18 @@
-"""Unit tests per pipeline module (PRD 7: independently testable). Run: pytest flowcast/tests"""
+"""
+test_pipeline.py - small automatic checks that each step does what it promises.
+
+    pytest flowcast/tests          runs every test in about 15 seconds
+
+HOW TO READ A TEST
+    Each test builds a tiny made-up table (a few rows), runs ONE function on it, and uses
+    `assert` to check the answer. If the answer is wrong, pytest prints which test failed.
+    Tiny tables make the right answer obvious, e.g. "a volume of -5 with vehicle_count 250
+    must become 250".
+
+WHY BOTHER
+    If you change clean.py later and accidentally break the repair of negative volumes,
+    the test fails straight away, instead of you finding out from strange model scores.
+"""
 
 import pathlib
 import sys
@@ -46,7 +60,7 @@ def raw_traffic(n=6, **overrides):
     return df
 
 
-# ---------------------------------------------------------------- M1
+# ---------------------------------------------------------------- M1: checking raw rows
 def test_validation_quarantines_impossible_values():
     df = raw_traffic(
         traffic_volume=[400, -5, 400, 400, 400, 400],
@@ -73,7 +87,7 @@ def test_mixed_date_formats_parse_to_same_timestamp():
     assert a.iloc[0] == b.iloc[0] and a.iloc[0].tzinfo is not None
 
 
-# ---------------------------------------------------------------- M2
+# ---------------------------------------------------------------- M2: repairing and filling
 def test_bad_readings_recovered_from_redundant_fields():
     df = raw_traffic(
         traffic_volume=[400, -5, np.nan, 400, 400, 400],
@@ -106,7 +120,7 @@ def test_congestion_derived_from_vc_bands():
     assert out["congestion_level"].tolist() == ["Free-flow", "Moderate", "Heavy", "Severe"]
 
 
-# ---------------------------------------------------------------- M3
+# ---------------------------------------------------------------- M3: features, no peeking ahead
 def test_cyclical_hour_puts_midnight_next_to_2330():
     df = pd.DataFrame(
         {"timestamp": pd.to_datetime(["2025-01-01 23:30", "2025-01-02 00:00", "2025-01-02 12:00"])}
@@ -165,7 +179,7 @@ def test_no_feature_uses_the_target_window():
     assert banned.isdisjoint(features.FEATURE_COLS)
 
 
-# ---------------------------------------------------------------- M5 / M6 / evaluate
+# ---------------------------------------------------------------- M5 / M6: training and scoring
 def test_split_is_in_time_order():
     df = pd.DataFrame({"timestamp": pd.date_range("2025-01-01", periods=100, freq="30min")})
     train, val, test = split_masks(df)

@@ -1,12 +1,24 @@
 """
-M1 - Ingestion & Validation (PRD FR-01, FR-02, module M1, cleaning stage 1).
+ingest.py - M1: load the raw data and check it before anything else touches it.
 
-Loads the three raw tables, enforces the schema from the data dictionary,
-parses both date formats into one timezone-aware timestamp, and range-checks
-numeric fields. Rows that break a rule are quarantined with a reason in
-data/interim/ - never silently dropped (PRD NFR: 0 silent drops). Quarantined
-traffic rows still go to M2, which repairs the bad field instead of losing
-the whole row.
+WHAT IT DOES, IN ORDER
+    1. Read the three CSV files from data/raw/ (traffic, weather, calendar).
+    2. Check every expected column is there, and give each one the right type
+       (numbers become numbers; text that can't be read as a number becomes NaN).
+    3. Turn the separate "date" and "time" text columns into one real timestamp.
+       Careful: traffic writes dates as 2025-03-04, weather as 04/03/2025.
+    4. Test every row against simple rules, e.g. "volume can't be negative",
+       "speed can't be over 200 km/h". A row that breaks a rule gets a reason.
+    5. Save the rule-breaking rows to data/interim/*_rejects.csv, with their reason.
+
+KEY IDEA FOR BEGINNERS: quarantine, don't delete
+    A bad row is set aside with a note, never silently thrown away. If something looks
+    wrong weeks later, you can still see exactly which rows were flagged and why.
+    Most flagged traffic rows are passed on to clean.py, which repairs the one bad value
+    and keeps the rest of the row.
+
+TRY IT
+    python flowcast/src/ingest.py     prints how many rows passed and failed each rule
 """
 
 import pandas as pd
@@ -16,8 +28,11 @@ from utils import CONFIG, get_logger, path
 log = get_logger("M1")
 VAL = CONFIG["validation"]
 TZ = CONFIG["project"]["timezone"]
+# Problems we can't repair: if we don't know which road or which time a reading belongs to,
+# the row is useless. Everything else (a bad speed, a negative count) can be fixed in M2.
 UNRECOVERABLE = "bad_road_id|bad_timestamp|unknown_station|bad_capacity"
 
+# The expected columns and their types, copied from the data dictionary.
 SCHEMA = {
     "traffic": {
         "road_id": "string",
@@ -100,7 +115,13 @@ def validate_traffic(df):
     """Schema, timestamp and range checks for the traffic log."""
     df = enforce_schema(df, "traffic")
     df["timestamp"] = make_timestamp(df["date"], df["time"], "%Y-%m-%d")
+
+    # One empty text box per row. Every rule a row breaks adds its name, e.g.
+    # "negative_traffic_volume;". A row with an empty box passed every rule.
     reasons = pd.Series("", index=df.index)
+
+    # Each rule is a "mask": a True/False column, True where the row breaks the rule.
+    # Writing df["traffic_volume"] < 0 checks all 178,468 rows at once - no loop needed.
     rules = {
         "bad_road_id": ~df["road_id"].str.match(VAL["road_id_pattern"], na=False),
         "bad_timestamp": df["timestamp"].isna(),
@@ -112,16 +133,18 @@ def validate_traffic(df):
         "negative_accident_count": df["accident_count"] < 0,
     }
     for name, mask in rules.items():
-        reasons[mask.fillna(False)] += (
-            name + ";"
-        )  # NaN comparisons count as "no match", not as a failure
+        # A missing value can't be "negative" or "too fast", so fillna(False) treats it as
+        # passing here. Missing values are a different problem, handled in clean.py.
+        reasons[mask.fillna(False)] += name + ";"
     return df, split_rejects(df, reasons, "traffic")[1]
 
 
 def validate_weather(df):
     """Schema, DD/MM/YYYY timestamp and range checks for weather."""
     df = enforce_schema(df, "weather")
-    df["timestamp"] = make_timestamp(df["date"], df["time"], "%d/%m/%Y")  # dictionary: DD/MM/YYYY
+    # Weather writes dates day-first (04/03/2025 = 4 March). Reading it as month-first would
+    # silently turn it into 3 April, and the weather would join to the wrong traffic.
+    df["timestamp"] = make_timestamp(df["date"], df["time"], "%d/%m/%Y")
     reasons = pd.Series("", index=df.index)
     rules = {
         "unknown_station": ~df["station_id"].isin(VAL["stations"]),

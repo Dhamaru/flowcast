@@ -1,6 +1,28 @@
 """
-Metrics, comparison, error analysis and model cards (PRD sections 13.2-13.4).
-Shared by the classical models (M5) and the LSTM (M6) so both are scored the same way.
+evaluate.py - how good is a model, and which one wins?
+
+Used by both ml_models.py and dl_model.py, so every model is scored the same way.
+
+THE METRICS, IN PLAIN WORDS
+  Regression (predicting a number, e.g. traffic_volume):
+    MAE    average miss.  Predictions 380, 420 vs truth 400, 400 -> MAE = 20 vehicles.
+    RMSE   like MAE, but squares each miss first, so one big miss counts extra.
+           FlowCast's main score, because a big miss at rush hour hurts most.
+    MAPE   average miss as a percentage of the truth (20 / 400 = 5%).
+    R2     share of the ups and downs the model explains; 1.0 would be perfect.
+  Classification (predicting a label):
+    precision  of the times the model said "Severe", how often was it really Severe?
+    recall     of all the real Severe windows, how many did the model catch?
+    macro-F1   F1 (a balance of precision and recall) for each class, averaged equally,
+               so the rare Severe class counts as much as the common Free-flow class.
+    ROC-AUC    for accident risk: the chance a random accident window gets a higher
+               score than a random safe one. 0.5 = coin flip, 1.0 = perfect.
+
+ALSO IN HERE
+  interval_by_hour / coverage   the "± range" shown with each forecast, and a check that
+                                the range really contains the truth ~80% of the time
+  select_winner / head_to_head  picking the best model, and LSTM vs the best classical model
+  write_model_cards             one record per saved model: data, settings, scores
 """
 
 import json
@@ -30,7 +52,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 def regression_metrics(y_true, y_pred):
     """RMSE is the headline; MAE, MAPE and R2 support it (PRD 13.2)."""
     y_true, y_pred = np.asarray(y_true, float), np.asarray(y_pred, float)
-    nonzero = y_true != 0
+    nonzero = y_true != 0  # MAPE divides by the truth, so skip any zero to avoid dividing by 0
     return {
         "rmse": float(np.sqrt(mean_squared_error(y_true, y_pred))),
         "mae": float(mean_absolute_error(y_true, y_pred)),
@@ -72,6 +94,8 @@ def congestion_metrics(y_true, y_pred, labels):
 
 def best_f1_threshold(y_true, scores):
     """Alert threshold that maximises F1 - chosen on the validation slice, never on test."""
+    # Try every possible cut-off. A low one catches more accidents but raises more false
+    # alarms; a high one does the opposite. F1 picks the best balance of the two.
     precision, recall, thresholds = precision_recall_curve(y_true, scores)
     f1 = 2 * precision * recall / np.clip(precision + recall, 1e-9, None)
     return float(thresholds[np.argmax(f1[:-1])])
@@ -92,6 +116,8 @@ def accident_metrics(y_true, scores, threshold):
 
 def interval_by_hour(residuals, hours):
     """Half-width of the confidence range per hour of day, from validation errors."""
+    # Take the model's misses on validation data for each hour, and find the size that 80% of
+    # misses stay under. At 8 am misses are big, so the range is wide; at 3 am it's narrow.
     q = CONFIG["confidence"]
     return pd.Series(np.abs(residuals)).groupby(np.asarray(hours)).quantile(q).to_dict()
 

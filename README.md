@@ -6,6 +6,22 @@ congestion and scores accident risk, all with a confidence estimate, and shows t
 
 Built to `Imported/FlowCast_PRD.docx` v1.0.
 
+## New here? Read in this order
+
+Every file starts with a plain-language guide: what it does, the steps in order, and the ideas you need.
+
+| # | Open | You'll learn |
+|---|---|---|
+| 1 | `notebooks/01_eda.ipynb` | What the data looks like and every problem in it, one question at a time |
+| 2 | `notebooks/02_cleaning.ipynb` | How each problem is fixed, slowly, on a few rows |
+| 3 | `notebooks/03_modelling.ipynb` | Regression vs classification, how to read the scores, why the winner won |
+| 4 | `run_pipeline.py` | How the whole project runs, step by step |
+| 5 | `src/ingest.py` → `clean.py` → `features.py` → `ml_models.py` → `dl_model.py` | The real code behind the notebooks, in the order it runs |
+| 6 | `dashboard/app.py` | How the results are shown to users |
+
+The notebooks only read saved results, so they open and run in seconds. Run `run_pipeline.py` once first if
+`data/processed/` is empty.
+
 ## Setup (one command)
 
 ```

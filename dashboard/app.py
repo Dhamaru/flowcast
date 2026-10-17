@@ -1,24 +1,44 @@
 """
-M7 - FlowCast Analytics Dashboard (PRD FR-13 to FR-18, section 14).
+app.py - M7: the FlowCast dashboard, built with Streamlit.
 
-Nine views (PRD 14.1) and four tools (PRD 14.2). Reads only what the pipeline
-saved; it never trains, except when a reviewer presses Retrain.
+    streamlit run flowcast/dashboard/app.py      then open http://localhost:8501
 
-    streamlit run flowcast/dashboard/app.py
+HOW A STREAMLIT APP WORKS (it surprises most beginners)
+    Streamlit runs this whole file from top to bottom every time you click anything.
+    That's why loading is wrapped in @st.cache_data / @st.cache_resource: the first run
+    loads the data and models, and every later run reuses them instead of reloading.
+
+HOW THIS FILE IS ORGANISED
+    1. Imports and settings (colours, the list of views)
+    2. Loading functions: the feature table, test predictions, scores, saved models
+    3. predict_rows(): runs every model on some rows - the one place predictions are made
+    4. The sidebar: pick your role, then a view or a tool
+    5. One `if view == "..."` block per page, each drawing that page's tables and charts
+
+WHAT IT NEVER DOES
+    It never trains a model on its own; it only reads what run_pipeline.py saved.
+    The one exception is the Retrain tool, which runs the pipeline when you press the button.
 """
 
 import json
+import logging
 import pathlib
 import pickle
 import subprocess
 import sys
 import time
+import warnings
 
 import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+
+# Hide only "this will change in a future version" notices from libraries.
+# Real warnings stay visible: one of them is how the missing-scaler bug was found.
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
@@ -71,7 +91,9 @@ VIEWS = [
 TOOLS = ["Forecast a segment", "Upload data", "Retrain models", "Reports & insights"]
 
 
-# ------------------------------------------------------------------ loading
+# ------------------------------------------------------------------ 2. loading
+# @st.cache_data keeps the result in memory after the first call, so clicking around
+# doesn't reload 181,200 rows each time. @st.cache_resource does the same for models.
 @st.cache_data
 def load_table():
     """The versioned feature table written by M3."""
@@ -124,6 +146,8 @@ def risk_probability(bundle, X):
 
 def predict_rows(df, X, h, bundles):
     """All targets for these rows at horizon h, each stamped with its model version (lineage)."""
+    # X must hold the same 41 columns, in the same order, the models were trained on.
+    # Every view and tool predicts through this one function, so they can't disagree.
     vol, spd = bundles[("traffic_volume", h)], bundles[("avg_speed", h)]
     hours = df["timestamp"].dt.hour
     out = pd.DataFrame(index=df.index)
@@ -150,7 +174,7 @@ def predict_rows(df, X, h, bundles):
     return out
 
 
-def bars(frame, x, y, title, target=None, highlight=None, lower_is_better=True):
+def bars(frame, x, y, title, target=None, highlight=None):
     """Bar chart of one metric per model, winner highlighted, optional PRD target line."""
     colors = [HIGHLIGHT if m == highlight else BASE for m in frame[x]]
     fig = go.Figure(
@@ -170,7 +194,8 @@ def bars(frame, x, y, title, target=None, highlight=None, lower_is_better=True):
     return fig
 
 
-# ------------------------------------------------------------------ shell
+# ------------------------------------------------------------------ 4. sidebar
+# Stop with a clear message if the pipeline hasn't been run yet.
 st.set_page_config(page_title="FlowCast", layout="wide")
 needed = [
     path("processed", VERSION_FILE),
@@ -211,7 +236,8 @@ st.sidebar.caption(
 )
 
 
-# ------------------------------------------------------------------ views
+# ------------------------------------------------------------------ 5. the nine views
+# Only the block matching the chosen view runs. Each one: pick inputs, filter, plot.
 if view == "Live prediction":
     st.header("Live prediction")
     st.caption(
@@ -267,7 +293,7 @@ if view == "Live prediction":
     st.dataframe(
         with_severity(table, ["congestion", "actual congestion"]),
         hide_index=True,
-        use_container_width=True,
+        width="stretch",
     )
     st.caption(
         "Accident probability is calibrated: across the test window it averages "
@@ -291,7 +317,7 @@ elif view == "Historical trends":
             labels={"value": "", "variable": ""},
         )
         fig.update_layout(height=360, legend=dict(orientation="h"))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     prof = seg.assign(
         hour=seg["timestamp"].dt.hour, day=np.where(seg["is_weekend"] == 1, "weekend", "weekday")
     )
@@ -306,7 +332,7 @@ elif view == "Historical trends":
             title="Peak-hour pattern, Jan–May",
             labels={"traffic_volume": "vehicles / 30 min"},
         ),
-        use_container_width=True,
+        width="stretch",
     )
 
 elif view == "Congestion heatmap":
@@ -343,7 +369,7 @@ elif view == "Congestion heatmap":
         )
     )
     fig.update_layout(height=640, yaxis=dict(autorange="reversed"))
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     st.caption(f"{int(d['is_imputed'].sum())} of {len(d)} cells this day are rebuilt windows.")
 
 elif view == "Road comparison":
@@ -378,7 +404,7 @@ elif view == "Road comparison":
             title="Congestion mix (% of windows)",
             labels={"share": "", "road_id": "", "congestion_level": ""},
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
         cols = st.columns(3)
         for col, (field, title) in zip(
             cols,
@@ -392,9 +418,9 @@ elif view == "Road comparison":
                 px.bar(
                     stats, x="road_id", y=field, title=title, labels={field: "", "road_id": ""}
                 ),
-                use_container_width=True,
+                width="stretch",
             )
-        st.dataframe(stats.round(2), hide_index=True, use_container_width=True)
+        st.dataframe(stats.round(2), hide_index=True, width="stretch")
 
 elif view == "Model performance":
     st.header("Model performance")
@@ -421,7 +447,7 @@ elif view == "Model performance":
     a, b = st.columns(2)
     a.plotly_chart(
         bars(allv, "model", "rmse", "Traffic volume · test RMSE", highlight=vol["selected"]),
-        use_container_width=True,
+        width="stretch",
     )
     h = pd.DataFrame([{"horizon": f"{int(k) * 30} min", **v} for k, v in vol["horizons"].items()])
     b.plotly_chart(
@@ -432,7 +458,7 @@ elif view == "Model performance":
             text_auto=".1f",
             title=f"{vol['selected']} RMSE by forecast horizon",
         ),
-        use_container_width=True,
+        width="stretch",
     )
     spd = board["speed"]
     sf = pd.DataFrame(
@@ -447,7 +473,7 @@ elif view == "Model performance":
     s1, s2 = st.columns(2)
     s1.plotly_chart(
         bars(sf, "model", "rmse", "Average speed · test RMSE (km/h)", highlight=spd["selected"]),
-        use_container_width=True,
+        width="stretch",
     )
     s2.plotly_chart(
         px.bar(
@@ -458,7 +484,7 @@ elif view == "Model performance":
             hover_data={"mape": ":.2f"},
             title="Travel time (60 × length ÷ predicted speed) · RMSE in minutes",
         ),
-        use_container_width=True,
+        width="stretch",
     )
     c, d_ = st.columns(2)
     cong = board["congestion"]
@@ -467,7 +493,7 @@ elif view == "Model performance":
     )
     c.plotly_chart(
         bars(cf, "model", "macro_f1", "Congestion · test macro-F1", 0.80, cong["selected"]),
-        use_container_width=True,
+        width="stretch",
     )
     acc = board["accident"]
     af = pd.DataFrame(
@@ -475,7 +501,7 @@ elif view == "Model performance":
     )
     d_.plotly_chart(
         bars(af, "model", "roc_auc", "Accident risk · test ROC-AUC", 0.75, acc["selected"]),
-        use_container_width=True,
+        width="stretch",
     )
 
     st.subheader("Acceptance check · PRD 3.3")
@@ -513,7 +539,7 @@ elif view == "Model performance":
     st.dataframe(
         pd.DataFrame(rows, columns=["criterion", "target", "result", "met"]),
         hide_index=True,
-        use_container_width=True,
+        width="stretch",
     )
 
     st.subheader("Error analysis · PRD 13.3")
@@ -527,7 +553,7 @@ elif view == "Model performance":
         s = pd.Series(eb[key])
         col.plotly_chart(
             px.bar(x=s.index, y=s.values, title=title, labels={"x": "", "y": "RMSE"}),
-            use_container_width=True,
+            width="stretch",
         )
     # cell shading = row count (blues); the class labels carry the severity colours
     tinted = [f"<span style='color:{COLORS[lvl]}'><b>{lvl}</b></span>" for lvl in LEVELS]
@@ -540,7 +566,7 @@ elif view == "Model performance":
             labels=dict(x="predicted", y="actual", color="windows"),
             title="Congestion confusion matrix",
         ),
-        use_container_width=True,
+        width="stretch",
     )
     t = acc["test"]
     st.caption(
@@ -576,7 +602,7 @@ elif view == "Feature importance":
                 height=520,
                 title=f"{choice} · {board[key]['selected']} · top 15",
             ),
-            use_container_width=True,
+            width="stretch",
         )
 
 elif view == "Forecast visualisation":
@@ -626,7 +652,7 @@ elif view == "Forecast visualisation":
             ]
         )
         fig.update_layout(height=420, legend=dict(orientation="h"))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
         if len(t):
             st.metric(
                 "RMSE, this segment and range",
@@ -670,11 +696,11 @@ elif view == "Prediction confidence":
         title="Coverage on the test window",
     )
     fig.add_hline(y=80, line_dash="dash", line_color=TARGET)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     vb = cov[cov["target"] == "traffic_volume"]
     st.plotly_chart(
         px.bar(vb, x="horizon", y="avg ±", title="Volume range width grows with horizon"),
-        use_container_width=True,
+        width="stretch",
     )
     band = pd.Series(bundles[("traffic_volume", 1)]["band_by_hour"])
     st.plotly_chart(
@@ -684,7 +710,7 @@ elif view == "Prediction confidence":
             labels={"x": "hour", "y": "± vehicles"},
             title="Next-window volume range by hour: wider at rush hour",
         ),
-        use_container_width=True,
+        width="stretch",
     )
 
 elif view == "Weather vs traffic":
@@ -707,11 +733,11 @@ elif view == "Weather vs traffic":
     a, b = st.columns(2)
     a.plotly_chart(
         px.bar(by, x="weather_condition", y="volume", title="Mean volume"),
-        use_container_width=True,
+        width="stretch",
     )
     b.plotly_chart(
         px.bar(by, x="weather_condition", y="speed", title="Mean speed km/h"),
-        use_container_width=True,
+        width="stretch",
     )
     rain = (
         w.groupby(
@@ -740,11 +766,11 @@ elif view == "Weather vs traffic":
     r1, r2 = st.columns(2)
     r1.plotly_chart(
         px.bar(rain, x="rainfall", y="avg_speed", title="Mean speed by rainfall"),
-        use_container_width=True,
+        width="stretch",
     )
     r2.plotly_chart(
         px.bar(vis, x="visibility", y="avg_speed", title="Mean speed by visibility"),
-        use_container_width=True,
+        width="stretch",
     )
     st.dataframe(by.round(1), hide_index=True)
 
@@ -770,14 +796,14 @@ elif view == "Weather vs traffic":
             barmode="group",
             color_discrete_map={"observed": ACTUAL, "predicted": BASE},
         ),
-        use_container_width=True,
+        width="stretch",
     )
     st.caption(
         "Close bars mean the model handles that weather well. Weather enters the model as the "
         "last observed reading, so a sudden change of weather is where gaps would show."
     )
 
-# ------------------------------------------------------------------ tools
+# ------------------------------------------------------------------ 5b. the four tools
 elif view == "Forecast a segment":
     st.header("Forecast a segment")
     st.caption(
@@ -799,6 +825,8 @@ elif view == "Forecast a segment":
     out = []
     for h in HORIZONS:
         target_time = issued + pd.Timedelta(minutes=30 * h)
+        if target_time < test_from:
+            continue  # inside data the models already used; only show truly unseen windows
         row = df[(df["road_id"] == road) & (df["timestamp"] == target_time)]
         X = horizon_matrix(h).loc[row.index]
         if row.empty or X.isna().any(axis=1).iloc[0]:
@@ -818,9 +846,15 @@ elif view == "Forecast a segment":
                 "model": f"traffic_volume_h{h}.pkl · {p['model_version']}",
             }
         )
-    st.dataframe(
-        with_severity(pd.DataFrame(out), ["congestion"]), hide_index=True, use_container_width=True
-    )
+    if out:
+        st.dataframe(
+            with_severity(pd.DataFrame(out), ["congestion"]), hide_index=True, width="stretch"
+        )
+    else:
+        st.info(
+            f"No forecast to show. Only windows from {test_from:%d %b %H:%M} onward are unseen "
+            "by the models, so pick a later issue time."
+        )
 
 elif view == "Upload data":
     st.header("Upload data")
@@ -839,9 +873,13 @@ elif view == "Upload data":
         log_ = pd.read_csv(path("raw", CONFIG["raw_files"]["traffic"]))
         raw = log_[log_["date"].isin(["2025-05-30", "2025-05-31"])]
     if raw is not None:
+        # The cleaning functions log to reports/pipeline.log. That file is the record of
+        # real pipeline runs, so switch logging off while we process someone's upload.
+        logging.disable(logging.INFO)
         try:
             traffic, rejects = ingest.validate_traffic(raw)
         except ValueError as e:
+            logging.disable(logging.NOTSET)
             st.error(f"This file can't be used: {e}")
             st.stop()
         weather, _ = ingest.validate_weather(
@@ -860,6 +898,7 @@ elif view == "Upload data":
         traffic, weather = clean.harmonise_categories(traffic, weather, stats)
         merged = clean.merge_sources(traffic, weather, calendar, stats)
         built = features.build_features(merged)
+        logging.disable(logging.NOTSET)  # logging back on
         X = features.horizon_features(built, 1)
         ready = built[X.notna().all(axis=1) & (built["is_imputed"] == 0)]
         m = st.columns(4)
@@ -877,7 +916,7 @@ elif view == "Upload data":
             st.dataframe(
                 with_severity(result.round(3), ["congestion_level", "congestion"]),
                 hide_index=True,
-                use_container_width=True,
+                width="stretch",
             )
             st.download_button(
                 "Download predictions (CSV)",
@@ -904,7 +943,7 @@ elif view == "Retrain models":
             ]
         ),
         hide_index=True,
-        use_container_width=True,
+        width="stretch",
     )
     full_table = path("processed", VERSION_FILE.replace(".parquet", ".csv"))
     if not full_table.exists():
@@ -942,8 +981,8 @@ elif view == "Reports & insights":
         by_road = r.groupby("road_id")["traffic_volume"].sum().sort_values(ascending=False)
         congested = (r["congestion_code"] >= 2).groupby(r["road_id"]).mean()
         hour = r.groupby(r["timestamp"].dt.hour)["traffic_volume"].mean().idxmax()
-        weather = (
-            r.drop_duplicates("timestamp")["weather_condition"]
+        weather = (  # every segment-window counts, so all three weather stations are included
+            r["weather_condition"]
             .value_counts(normalize=True)
             .mul(100)
             .round(1)
@@ -968,7 +1007,7 @@ elif view == "Reports & insights":
                 f"- Windows with a reported accident: {int((r['accident_count'] > 0).sum()):,}",
                 f"- Reported accidents: {int(r['accident_count'].sum()):,}",
                 "",
-                "## Weather (share of windows)",
+                "## Weather (share of segment-windows)",
                 *[f"- {k}: {v}%" for k, v in weather.items()],
                 "",
                 f"## Models in use (version {board['version']})",

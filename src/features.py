@@ -1,13 +1,28 @@
 """
-M3 - Feature Engineering (PRD FR-05, module M3, section 9.2).
+features.py - M3: turn the clean table into the columns a model learns from.
 
-Leakage guard (PRD 9.2): every feature must be known at prediction time.
-  - known in advance: time of day, day of week, calendar, segment capacity/length
-  - history: lags, rolling stats, capacity ratios and weather, all computed within
-    one segment in time order and taken from windows BEFORE the target window
+A model only knows what's in its columns. A raw reading says what's happening NOW;
+to forecast, the model also needs the recent past and the time of day. This file adds
+41 "feature" columns, grouped like this:
 
-For a horizon of h windows ahead, horizon_features() shifts the history block
-by another h-1 windows, so the newest information is h windows old.
+    TIME      hour_sin / hour_cos   hour of day as a point on a circle (see below)
+              is_weekend, is_peak_period
+    CALENDAR  public_holiday, event_flag, roadwork_flag, days_to_event
+    ROAD      road_capacity, segment_length_km  (never change for a road)
+    HISTORY   traffic_volume_lag1    volume 30 min ago     (lag = "look back")
+              traffic_volume_lag48   volume same time yesterday (48 x 30 min = 24 h)
+              traffic_volume_roll4_mean   average of the last 4 windows (2 hours)
+              ...and the same for speed, plus last window's weather and V/C ratio
+
+KEY IDEAS FOR BEGINNERS
+    * Why sin/cos for the hour? As a plain number, 23 and 0 look far apart, but 11 pm and
+      midnight are neighbours. sin and cos put the hours on a clock face, so they are close.
+    * The no-cheating rule (called "leakage"): every feature must be something you'd KNOW
+      at the moment you make the forecast. This window's own volume or weather isn't known
+      yet, so only LAST window's values are used. Breaking this rule gives great test
+      scores that collapse in real use.
+    * Forecasting further ahead: horizon_features(df, h) moves the history back h-1 more
+      windows. For a 90-minute forecast (h=3) the newest volume the model sees is 90 min old.
 """
 
 import json
@@ -58,8 +73,8 @@ FEATURE_COLS = TIME_COLS + CALENDAR_COLS + STATIC_COLS + HISTORY_COLS  # one lis
 
 def add_time_features(df):
     """Cyclical hour and day-of-week (sin/cos), weekend and peak-period flags."""
-    hour = df["timestamp"].dt.hour + df["timestamp"].dt.minute / 60
-    dow = df["timestamp"].dt.dayofweek
+    hour = df["timestamp"].dt.hour + df["timestamp"].dt.minute / 60  # 07:30 -> 7.5
+    dow = df["timestamp"].dt.dayofweek  # Monday 0 ... Sunday 6
     df["hour_sin"], df["hour_cos"] = np.sin(2 * np.pi * hour / 24), np.cos(2 * np.pi * hour / 24)
     df["dow_sin"], df["dow_cos"] = np.sin(2 * np.pi * dow / 7), np.cos(2 * np.pi * dow / 7)
     df["is_weekend"] = (dow >= 5).astype(int)
@@ -102,16 +117,21 @@ def add_weather_features(df):
 
 def add_history_features(df):
     """Lags, rolling mean/std, capacity ratios and weather - all from earlier windows only."""
+    # Sort by road then time, and group by road, so shift() never mixes two roads:
+    # NL-002's first row must not get NL-001's last reading as its "previous" value.
     df = df.sort_values(["road_id", "timestamp"]).reset_index(drop=True)
     g = df.groupby("road_id")
-    df["vc_ratio"] = df["traffic_volume"] / (
-        df["road_capacity"] / 2
-    )  # analytics only, never a feature
+    # V/C ratio = how full the road is. Capacity is per hour, a window is half an hour.
+    # This window's own value is NOT a feature (it contains the answer); only _lag1 is.
+    df["vc_ratio"] = df["traffic_volume"] / (df["road_capacity"] / 2)
     df["capacity_headroom"] = df["road_capacity"] / 2 - df["traffic_volume"]
     for col in ["traffic_volume", "avg_speed"]:
         for k in FEAT["lags"]:
+            # shift(k) moves every value down k rows: row t now holds the value from t-k.
             df[f"{col}_lag{k}"] = g[col].shift(k)
-        previous = g[col].shift(1)  # shift first so a window never averages itself in
+        # shift(1) BEFORE rolling, so the average covers the windows before this one.
+        # Without it, each window would include its own value - a sneaky form of leakage.
+        previous = g[col].shift(1)
         for w in FEAT["rolling_windows"]:
             rolled = previous.groupby(df["road_id"]).rolling(w, min_periods=w)
             df[f"{col}_roll{w}_mean"] = rolled.mean().reset_index(level=0, drop=True)
