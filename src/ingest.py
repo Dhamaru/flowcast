@@ -32,45 +32,21 @@ TZ = CONFIG["project"]["timezone"]
 # the row is useless. Everything else (a bad speed, a negative count) can be fixed in M2.
 UNRECOVERABLE = "bad_road_id|bad_timestamp|unknown_station|bad_capacity"
 
-# The expected columns and their types, copied from the data dictionary.
+# The expected columns, in order, copied from the data dictionary.
+# NUMBER columns become floats; every other column is text.
 SCHEMA = {
-    "traffic": {
-        "road_id": "string",
-        "road_name": "string",
-        "latitude": "float",
-        "longitude": "float",
-        "weather_station_id": "string",
-        "date": "string",
-        "time": "string",
-        "traffic_volume": "float",
-        "vehicle_count": "float",
-        "vehicle_type_dist": "string",
-        "avg_speed": "float",
-        "occupancy": "float",
-        "congestion_level": "string",
-        "travel_time": "float",
-        "accident_count": "float",
-        "signal_timing": "float",
-        "road_capacity": "float",
-    },
-    "weather": {
-        "station_id": "string",
-        "date": "string",
-        "time": "string",
-        "weather_condition": "string",
-        "temperature": "float",
-        "rainfall": "float",
-        "visibility": "float",
-    },
-    "calendar": {
-        "date": "string",
-        "public_holiday": "float",
-        "holiday_name": "string",
-        "event_flag": "float",
-        "event_name": "string",
-        "roadwork_flag": "float",
-    },
+    "traffic": ["road_id", "road_name", "latitude", "longitude", "weather_station_id", "date",
+                "time", "traffic_volume", "vehicle_count", "vehicle_type_dist", "avg_speed",
+                "occupancy", "congestion_level", "travel_time", "accident_count", "signal_timing",
+                "road_capacity"],
+    "weather": ["station_id", "date", "time", "weather_condition", "temperature", "rainfall",
+                "visibility"],
+    "calendar": ["date", "public_holiday", "holiday_name", "event_flag", "event_name",
+                 "roadwork_flag"],
 }
+NUMBER = {"latitude", "longitude", "traffic_volume", "vehicle_count", "avg_speed", "occupancy",
+          "travel_time", "accident_count", "signal_timing", "road_capacity", "temperature",
+          "rainfall", "visibility", "public_holiday", "event_flag", "roadwork_flag"}
 
 
 def enforce_schema(df, table):
@@ -81,15 +57,26 @@ def enforce_schema(df, table):
     extra = [c for c in df.columns if c not in SCHEMA[table]]
     if extra:
         log.info("%s: %d undocumented column(s) ignored: %s", table, len(extra), extra)
-    df = df[list(SCHEMA[table])].copy()
-    for col, kind in SCHEMA[table].items():
-        if kind == "float":
-            df[col] = pd.to_numeric(
-                df[col], errors="coerce"
-            )  # unparseable text becomes NaN, caught below
+    df = df[SCHEMA[table]].copy()
+    for col in SCHEMA[table]:
+        if col in NUMBER:  # unparseable text becomes NaN, caught by the rules below
+            df[col] = pd.to_numeric(df[col], errors="coerce")
         else:
             df[col] = df[col].astype("string")
     return df
+
+
+def rule_reasons(df, rules):
+    """
+    One text box per row, listing every rule the row breaks, e.g. "negative_traffic_volume;".
+    An empty box means the row passed every rule.
+    """
+    reasons = pd.Series("", index=df.index)
+    for name, mask in rules.items():
+        # A missing value can't be "negative" or "too fast", so fillna(False) treats it as
+        # passing here. Missing values are a different problem, handled in clean.py.
+        reasons[mask.fillna(False)] += name + ";"
+    return reasons
 
 
 def make_timestamp(date, time, date_format):
@@ -101,28 +88,20 @@ def make_timestamp(date, time, date_format):
 def split_rejects(df, reasons, table):
     """Separate rows with any reason and log why. run() writes them to data/interim/."""
     bad = reasons != ""
-    rejected = df[bad].assign(reject_reason=reasons[bad])
-    if len(rejected):
-        for reason, count in (
-            reasons[bad].str.split(";").explode().loc[lambda s: s != ""].value_counts().items()
-        ):
-            log.info("  %s rejected for %s: %d", table, reason, count)
+    counts = reasons[bad].str.split(";").explode().loc[lambda s: s != ""].value_counts()
+    for reason, count in counts.items():
+        log.info("  %s rejected for %s: %d", table, reason, count)
     log.info("%s: %d rows, %d valid, %d quarantined", table, len(df), (~bad).sum(), bad.sum())
-    return df[~bad], rejected
+    return df[~bad], df[bad].assign(reject_reason=reasons[bad])
 
 
 def validate_traffic(df):
     """Schema, timestamp and range checks for the traffic log."""
     df = enforce_schema(df, "traffic")
     df["timestamp"] = make_timestamp(df["date"], df["time"], "%Y-%m-%d")
-
-    # One empty text box per row. Every rule a row breaks adds its name, e.g.
-    # "negative_traffic_volume;". A row with an empty box passed every rule.
-    reasons = pd.Series("", index=df.index)
-
     # Each rule is a "mask": a True/False column, True where the row breaks the rule.
     # Writing df["traffic_volume"] < 0 checks all 178,468 rows at once - no loop needed.
-    rules = {
+    reasons = rule_reasons(df, {
         "bad_road_id": ~df["road_id"].str.match(VAL["road_id_pattern"], na=False),
         "bad_timestamp": df["timestamp"].isna(),
         "unknown_station": ~df["weather_station_id"].isin(VAL["stations"]),
@@ -131,11 +110,8 @@ def validate_traffic(df):
         "occupancy_over_max": df["occupancy"] > VAL["max_occupancy_pct"],
         "bad_capacity": ~(df["road_capacity"] > 0),
         "negative_accident_count": df["accident_count"] < 0,
-    }
-    for name, mask in rules.items():
-        # A missing value can't be "negative" or "too fast", so fillna(False) treats it as
-        # passing here. Missing values are a different problem, handled in clean.py.
-        reasons[mask.fillna(False)] += name + ";"
+    })
+    # every row goes on (M2 repairs them); only the rejects list is split off
     return df, split_rejects(df, reasons, "traffic")[1]
 
 
@@ -145,29 +121,23 @@ def validate_weather(df):
     # Weather writes dates day-first (04/03/2025 = 4 March). Reading it as month-first would
     # silently turn it into 3 April, and the weather would join to the wrong traffic.
     df["timestamp"] = make_timestamp(df["date"], df["time"], "%d/%m/%Y")
-    reasons = pd.Series("", index=df.index)
-    rules = {
+    reasons = rule_reasons(df, {
         "unknown_station": ~df["station_id"].isin(VAL["stations"]),
         "bad_timestamp": df["timestamp"].isna(),
         "negative_rainfall": df["rainfall"] < 0,
         "negative_visibility": df["visibility"] < 0,
-    }
-    for name, mask in rules.items():
-        reasons[mask.fillna(False)] += name + ";"
-    valid, rejected = split_rejects(df, reasons, "weather")
-    return valid, rejected
+    })
+    return split_rejects(df, reasons, "weather")
 
 
 def validate_calendar(df):
     """Schema, date and 0/1 flag checks for the calendar."""
     df = enforce_schema(df, "calendar")
     df["date"] = pd.to_datetime(df["date"], format="%Y-%m-%d", errors="coerce")
-    reasons = pd.Series("", index=df.index)
-    reasons[df["date"].isna()] += "bad_date;"
-    for flag in ["public_holiday", "event_flag", "roadwork_flag"]:
-        reasons[~df[flag].isin([0, 1])] += f"bad_{flag};"
-    valid, rejected = split_rejects(df, reasons, "calendar")
-    return valid, rejected
+    flags = ["public_holiday", "event_flag", "roadwork_flag"]
+    reasons = rule_reasons(df, {"bad_date": df["date"].isna(),
+                                **{f"bad_{f}": ~df[f].isin([0, 1]) for f in flags}})
+    return split_rejects(df, reasons, "calendar")
 
 
 def run():
@@ -176,11 +146,8 @@ def run():
     traffic, traffic_rejects = validate_traffic(pd.read_csv(path("raw", files["traffic"])))
     weather, weather_rejects = validate_weather(pd.read_csv(path("raw", files["weather"])))
     calendar, calendar_rejects = validate_calendar(pd.read_csv(path("raw", files["calendar"])))
-    for table, rejects in [
-        ("traffic", traffic_rejects),
-        ("weather", weather_rejects),
-        ("calendar", calendar_rejects),
-    ]:
+    for table, rejects in [("traffic", traffic_rejects), ("weather", weather_rejects),
+                           ("calendar", calendar_rejects)]:
         out = path("interim", f"{table}_rejects.csv")
         if len(rejects):
             rejects.to_csv(out, index=False)
@@ -190,11 +157,8 @@ def run():
     # on the map or the clock are dropped - the reject file still records them.
     fatal = traffic_rejects["reject_reason"].str.contains(UNRECOVERABLE)
     traffic = traffic.drop(traffic_rejects.index[fatal])
-    log.info(
-        "traffic: %d unrecoverable rows dropped, %d flagged rows passed on for repair",
-        fatal.sum(),
-        (~fatal).sum(),
-    )
+    log.info("traffic: %d unrecoverable rows dropped, %d flagged rows passed on for repair",
+             fatal.sum(), (~fatal).sum())
     return traffic, weather, calendar, traffic_rejects
 
 

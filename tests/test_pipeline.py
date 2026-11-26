@@ -109,13 +109,8 @@ def test_missing_windows_are_rebuilt_and_flagged():
 
 
 def test_congestion_derived_from_vc_bands():
-    df = pd.DataFrame(
-        {
-            "traffic_volume": [300, 500, 700, 900],
-            "road_capacity": 1600,
-            "congestion_level": [None] * 4,
-        }
-    )  # capacity/2 = 800 per window
+    df = pd.DataFrame({"traffic_volume": [300, 500, 700, 900], "road_capacity": 1600,
+                       "congestion_level": [None] * 4})  # capacity/2 = 800 per window
     out = clean.derive_congestion(df, {})
     assert out["congestion_level"].tolist() == ["Free-flow", "Moderate", "Heavy", "Severe"]
 
@@ -146,9 +141,7 @@ def test_lags_and_rolling_use_only_earlier_windows():
         df[col] = 0.0
     f = features.add_history_features(df)
     assert f.loc[10, "traffic_volume_lag1"] == 9
-    assert f.loc[10, "traffic_volume_roll4_mean"] == np.mean(
-        [6, 7, 8, 9]
-    )  # excludes window 10 itself
+    assert f.loc[10, "traffic_volume_roll4_mean"] == np.mean([6, 7, 8, 9])  # excludes window 10
     assert f.loc[50, "traffic_volume_lag48"] == 2
 
 
@@ -163,19 +156,9 @@ def test_horizon_features_shift_history_back():
 
 
 def test_no_feature_uses_the_target_window():
-    banned = {
-        "traffic_volume",
-        "avg_speed",
-        "occupancy",
-        "vc_ratio",
-        "capacity_headroom",
-        "congestion_level",
-        "travel_time",
-        "temperature",
-        "rainfall",
-        "visibility",
-        "is_rain",
-    }
+    # this window's own readings: unknown when the forecast is made
+    banned = {"traffic_volume", "avg_speed", "occupancy", "vc_ratio", "capacity_headroom",
+              "congestion_level", "travel_time", "temperature", "rainfall", "visibility", "is_rain"}
     assert banned.isdisjoint(features.FEATURE_COLS)
 
 

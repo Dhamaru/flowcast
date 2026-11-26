@@ -36,35 +36,16 @@ log = get_logger("M3")
 FEAT = CONFIG["features"]
 
 TIME_COLS = ["hour_sin", "hour_cos", "dow_sin", "dow_cos", "is_weekend", "is_peak_period"]
-CALENDAR_COLS = [
-    "public_holiday",
-    "event_flag",
-    "roadwork_flag",
-    "holiday_peak_interaction",
-    "days_to_event",
-]
+CALENDAR_COLS = ["public_holiday", "event_flag", "roadwork_flag", "holiday_peak_interaction",
+                 "days_to_event"]
 STATIC_COLS = ["road_capacity", "segment_length_km"]
-WEATHER_SOURCE = [
-    "is_rain",
-    "is_low_visibility",
-    "temperature",
-    "temp_band",
-    "rainfall",
-    "visibility",
-    "weather_Clear",
-    "weather_Cloudy",
-    "weather_Fog",
-    "weather_Overcast",
-    "weather_Rain",
-]
+WEATHER_ONEHOT = [f"weather_{w}" for w in ["Clear", "Cloudy", "Fog", "Overcast", "Rain"]]
+WEATHER_SOURCE = ["is_rain", "is_low_visibility", "temperature", "temp_band", "rainfall",
+                  "visibility"] + WEATHER_ONEHOT
 HISTORY_COLS = (
     [f"{c}_lag{k}" for c in ["traffic_volume", "avg_speed"] for k in FEAT["lags"]]
-    + [
-        f"{c}_roll{w}_{s}"
-        for c in ["traffic_volume", "avg_speed"]
-        for w in FEAT["rolling_windows"]
-        for s in ["mean", "std"]
-    ]
+    + [f"{c}_roll{w}_{s}" for c in ["traffic_volume", "avg_speed"]
+       for w in FEAT["rolling_windows"] for s in ["mean", "std"]]
     + ["occupancy_lag1", "vc_ratio_lag1", "capacity_headroom_lag1"]
     + [f"{c}_lag1" for c in WEATHER_SOURCE]
 )
@@ -103,13 +84,7 @@ def add_weather_features(df):
     df["is_rain"] = (df["weather_condition"] == "Rain").astype(int)
     df["is_low_visibility"] = (df["visibility"] < FEAT["low_visibility_m"]).astype(int)
     df["temp_band"] = np.digitize(df["temperature"], FEAT["temperature_bands"])
-    for col in [
-        "weather_Clear",
-        "weather_Cloudy",
-        "weather_Fog",
-        "weather_Overcast",
-        "weather_Rain",
-    ]:
+    for col in WEATHER_ONEHOT:
         if col not in df:
             df[col] = 0  # a small upload might not contain every condition
     return df
@@ -180,11 +155,6 @@ def run(clean_df):
     table = pd.read_csv(out, parse_dates=["timestamp"])
     table.to_parquet(out.with_suffix(".parquet"), index=False)
     warmup = df[HISTORY_COLS].isna().any(axis=1).sum()
-    log.info(
-        "%d rows x %d columns, %d model features; %d warm-up rows lack full history",
-        len(df),
-        df.shape[1],
-        len(FEATURE_COLS),
-        warmup,
-    )
+    log.info("%d rows x %d columns, %d model features; %d warm-up rows lack full history",
+             len(df), df.shape[1], len(FEATURE_COLS), warmup)
     return df

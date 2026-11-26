@@ -52,11 +52,8 @@ def remove_duplicates(df, stats):
     before = len(df)
     df = df.drop_duplicates(["road_id", "timestamp"]).drop(columns="_complete")
     stats["duplicates_key"] = before - len(df)
-    log.info(
-        "stage 2: removed %d exact + %d key-level duplicates",
-        stats["duplicates_exact"],
-        stats["duplicates_key"],
-    )
+    log.info("stage 2: removed %d exact + %d key-level duplicates",
+             stats["duplicates_exact"], stats["duplicates_key"])
     return df
 
 
@@ -70,9 +67,8 @@ def segment_lengths(df):
     a faulty speed reading be recovered exactly from the travel time.
     """
     ok = df["avg_speed"].between(1, CONFIG["validation"]["max_speed_kmh"])
-    return (
-        (df.loc[ok, "travel_time"] * df.loc[ok, "avg_speed"] / 60).groupby(df["road_id"]).median()
-    )
+    length = df.loc[ok, "travel_time"] * df.loc[ok, "avg_speed"] / 60
+    return length.groupby(df["road_id"]).median()
 
 
 def fix_outliers(df, stats):
@@ -104,9 +100,8 @@ def fix_outliers(df, stats):
     bad_speed = (df["avg_speed"] > max_speed) | df["avg_speed"].isna()
     recoverable = bad_speed & (df["travel_time"] > 0)
     stats["speed_recovered_from_travel_time"] = int(recoverable.sum())
-    df.loc[recoverable, "avg_speed"] = (
-        60 * df.loc[recoverable, "segment_length_km"] / df.loc[recoverable, "travel_time"]
-    )
+    fix = df.loc[recoverable]
+    df.loc[recoverable, "avg_speed"] = 60 * fix["segment_length_km"] / fix["travel_time"]
     df.loc[df["avg_speed"] > max_speed, "avg_speed"] = np.nan
 
     stats["occupancy_capped"] = int((df["occupancy"] > 100).sum())
@@ -121,28 +116,20 @@ def fix_outliers(df, stats):
         mad = (df[col] - median).abs().groupby(slot).transform("median")
         z = (df[col] - median).abs() / (1.4826 * mad)  # 1.4826 x MAD ~ one standard deviation
         stats[f"{col}_extreme_flagged"] = int(((z > CLEAN["zscore_flag"]) & (mad > 0)).sum())
-    log.info(
-        "stage 3: volume recovered %d, speed recovered %d, occupancy capped %d, "
-        "extremes flagged (kept) volume/speed/occupancy %d/%d/%d",
-        stats["volume_recovered_from_vehicle_count"],
-        stats["speed_recovered_from_travel_time"],
-        stats["occupancy_capped"],
-        stats["traffic_volume_extreme_flagged"],
-        stats["avg_speed_extreme_flagged"],
-        stats["occupancy_extreme_flagged"],
-    )
+    log.info("stage 3: volume recovered %d, speed recovered %d, occupancy capped %d, "
+             "extremes flagged (kept) volume/speed/occupancy %d/%d/%d",
+             stats["volume_recovered_from_vehicle_count"],
+             stats["speed_recovered_from_travel_time"], stats["occupancy_capped"],
+             *(stats[f"{c}_extreme_flagged"] for c in SENSOR_COLS))
     return df
 
 
 # ---------------------------------------------------------------- stage 4
 def full_grid(df, freq=f"{CLEAN['window_minutes']}min"):
     """Every key x every time step, so steps the sensor never logged become rows."""
-    start, end = df["timestamp"].min(), df["timestamp"].max()
-    windows = pd.date_range(start, end, freq=freq)
-    roads = df["road_id"].unique()
-    grid = pd.MultiIndex.from_product([roads, windows], names=["road_id", "timestamp"]).to_frame(
-        index=False
-    )
+    windows = pd.date_range(df["timestamp"].min(), df["timestamp"].max(), freq=freq)
+    grid = pd.MultiIndex.from_product([df["road_id"].unique(), windows],
+                                      names=["road_id", "timestamp"]).to_frame(index=False)
     return grid.merge(df, on=["road_id", "timestamp"], how="left")
 
 
@@ -162,9 +149,7 @@ def fill_gaps(df, cols, group, stats, label):
         # Short gap (up to 1 hour): draw a straight line between the readings either side.
         # Longer gap: use the usual value for that road at that time of day.
         short = missing & (gap_len <= CLEAN["short_gap_windows"])
-        interpolated = df.groupby(group)[col].transform(
-            lambda s: s.interpolate(limit_area="inside")
-        )
+        interpolated = df.groupby(group)[col].transform(lambda s: s.interpolate(limit_area="inside"))
         df.loc[short, col] = interpolated[short]
         still = df[col].isna()
         df.loc[still, col] = df.groupby([df[group], slot])[col].transform("median")[still]
@@ -181,28 +166,20 @@ def fill_missing_traffic(df, stats):
     df["is_imputed"] = df["road_name"].isna().astype(int)
     stats["missing_windows_rebuilt"] = len(df) - observed
 
-    static = [
-        "road_name",
-        "latitude",
-        "longitude",
-        "weather_station_id",
-        "road_capacity",
-        "segment_length_km",
-    ]
+    # fields that never change for a road: copy them into the rebuilt rows
+    static = ["road_name", "latitude", "longitude", "weather_station_id", "road_capacity",
+              "segment_length_km"]
     df[static] = df.groupby("road_id")[static].transform("first")
     df = fill_gaps(df, SENSOR_COLS + ["signal_timing"], "road_id", stats, "traffic")
 
     df["vehicle_count"] = df["vehicle_count"].fillna(df["traffic_volume"])
     df["vehicle_type_dist"] = df.groupby("road_id")["vehicle_type_dist"].transform(
-        lambda s: s.ffill().bfill()
-    )
+        lambda s: s.ffill().bfill())
     df["travel_time"] = df["travel_time"].fillna(60 * df["segment_length_km"] / df["avg_speed"])
     # an accident in a window the sensor never logged is unknown, not zero: kept as NaN
     # so the window feeds lag history but is never used as an accident training target
-    log.info(
-        "stage 4: rebuilt %d missing windows; filled sensor gaps (see report)",
-        stats["missing_windows_rebuilt"],
-    )
+    log.info("stage 4: rebuilt %d missing windows; filled sensor gaps (see report)",
+             stats["missing_windows_rebuilt"])
     return df
 
 
@@ -221,9 +198,9 @@ def harmonise_categories(df, weather, stats):
     """Weather labels to the controlled vocabulary; day labels; ordinal and one-hot encodings."""
     raw_labels = weather["weather_condition"].str.strip().str.lower()
     stats["weather_labels_before"] = int(weather["weather_condition"].nunique())
-    weather["weather_condition"] = raw_labels.map(CLEAN["weather_labels"]).fillna(
-        weather["weather_condition"].str.strip()
-    )
+    # a spelling not in the config map keeps its own (trimmed) text
+    weather["weather_condition"] = (raw_labels.map(CLEAN["weather_labels"])
+                                    .fillna(weather["weather_condition"].str.strip()))
     stats["weather_labels_after"] = int(weather["weather_condition"].nunique())
     stats["overcast_rows"] = int((weather["weather_condition"] == "Overcast").sum())
     stats["accident_rate_pct"] = round(float((df["accident_count"] > 0).mean() * 100), 2)
@@ -232,51 +209,39 @@ def harmonise_categories(df, weather, stats):
     # Models need numbers, not words. The levels have a natural order, so they become
     # 0 Free-flow, 1 Moderate, 2 Heavy, 3 Severe. The text column is kept as well.
     df["congestion_code"] = df["congestion_level"].map({lvl: i for i, lvl in enumerate(LEVELS)})
-    log.info(
-        "stage 5: weather labels %d -> %d; congestion encoded ordinal 0-3",
-        stats["weather_labels_before"],
-        stats["weather_labels_after"],
-    )
+    log.info("stage 5: weather labels %d -> %d; congestion encoded ordinal 0-3",
+             stats["weather_labels_before"], stats["weather_labels_after"])
     return df, weather
 
 
 # ---------------------------------------------------------------- stage 6
 def merge_sources(df, weather, calendar, stats):
     """Broadcast hourly weather onto both 30-min windows; attach calendar flags."""
-    weather = full_grid(weather.rename(columns={"station_id": "road_id"}), freq="h").rename(
-        columns={"road_id": "station_id"}
-    )
-    weather = fill_gaps(
-        weather, ["temperature", "visibility", "rainfall"], "station_id", stats, "weather"
-    )
+    # full_grid() expects a road_id column, so the station id borrows that name for a moment
+    weather = (full_grid(weather.rename(columns={"station_id": "road_id"}), freq="h")
+               .rename(columns={"road_id": "station_id"}))
+    weather = fill_gaps(weather, ["temperature", "visibility", "rainfall"], "station_id", stats,
+                        "weather")
     weather["weather_condition"] = weather.groupby("station_id")["weather_condition"].transform(
-        lambda s: s.ffill().bfill()
-    )
+        lambda s: s.ffill().bfill())
 
     # Weather is hourly, traffic is every 30 minutes. floor("h") turns 07:30 into 07:00,
     # so both the 07:00 and 07:30 traffic windows pick up the 07:00 weather reading.
     df["weather_hour"] = df["timestamp"].dt.floor("h")
-    w = weather[
-        ["station_id", "timestamp", "weather_condition", "temperature", "rainfall", "visibility"]
-    ]
-    df = df.merge(
-        w.rename(columns={"timestamp": "weather_hour"}),
-        left_on=["weather_station_id", "weather_hour"],
-        right_on=["station_id", "weather_hour"],
-        how="left",
-    )
+    w = weather[["station_id", "timestamp", "weather_condition", "temperature", "rainfall",
+                 "visibility"]].rename(columns={"timestamp": "weather_hour"})
+    df = df.merge(w, left_on=["weather_station_id", "weather_hour"],
+                  right_on=["station_id", "weather_hour"], how="left")
     df["date"] = df["timestamp"].dt.strftime("%Y-%m-%d")
     df["time"] = df["timestamp"].dt.strftime("%H:%M")
     cal = calendar.assign(date=calendar["date"].dt.strftime("%Y-%m-%d"))
-    df = df.merge(
-        cal[["date", "public_holiday", "event_flag", "roadwork_flag"]], on="date", how="left"
-    )
+    df = df.merge(cal[["date", "public_holiday", "event_flag", "roadwork_flag"]], on="date",
+                  how="left")
 
     # One-hot encoding: one 0/1 column per weather type (weather_Rain, weather_Fog, ...).
     # Weather types have no natural order, so they can't just be numbered like congestion.
-    df = pd.concat(
-        [df, pd.get_dummies(df["weather_condition"], prefix="weather", dtype=int)], axis=1
-    )
+    df = pd.concat([df, pd.get_dummies(df["weather_condition"], prefix="weather", dtype=int)],
+                   axis=1)
     # weather_station_id is only a join key - PRD 8.2 drops it after the merge
     return df.drop(columns=["weather_hour", "station_id", "weather_station_id"])
 
@@ -286,18 +251,9 @@ def final_checks(df, stats):
     """Assert the table is model-ready: no nulls where models read, sane ranges, full grid."""
     # `assert` stops the whole pipeline with a message if the condition is False.
     # Better to fail loudly here than to train models on broken data without noticing.
-    must_be_complete = [
-        "traffic_volume",
-        "avg_speed",
-        "occupancy",
-        "travel_time",
-        "congestion_level",
-        "temperature",
-        "rainfall",
-        "visibility",
-        "public_holiday",
-        "event_flag",
-    ]
+    must_be_complete = ["traffic_volume", "avg_speed", "occupancy", "travel_time",
+                        "congestion_level", "temperature", "rainfall", "visibility",
+                        "public_holiday", "event_flag"]
     nulls = df[must_be_complete].isna().sum()
     assert nulls.sum() == 0, f"nulls left in modelling columns: {nulls[nulls > 0].to_dict()}"
     assert df["traffic_volume"].ge(0).all() and df["avg_speed"].between(0, 200).all()
@@ -331,7 +287,7 @@ def write_quality_report(stats, rejects, out_path):
         "| Dropped; for key duplicates the most complete row was kept |",
         f"| Negative or missing traffic_volume | {s['volume_recovered_from_vehicle_count']} "
         "| Recovered exactly from vehicle_count (equal on every valid row) |",
-        f"| avg_speed above 200 km/h | {s['speed_recovered_from_travel_time']} "
+        f"| avg_speed above 200 km/h or missing | {s['speed_recovered_from_travel_time']} "
         "| Recovered exactly as 60 x segment length / travel_time |",
         f"| Occupancy above 100% | {s['occupancy_capped']} | Capped at 100 |",
         f"| Statistically extreme readings (robust z > {CLEAN['zscore_flag']} vs the same segment "
@@ -376,14 +332,19 @@ def write_quality_report(stats, rejects, out_path):
     out_path.write_text("\n".join(lines), encoding="utf-8")
 
 
-def run(traffic, weather, calendar, traffic_rejects):
-    """Run stages 2-6 and 8 on M1's output; save the versioned table and the quality report."""
-    stats = {"raw_hash": file_hash(path("raw", CONFIG["raw_files"]["traffic"]))}
+def clean_traffic(traffic, weather, stats):
+    """Stages 2-6 in order. Shared with the dashboard's upload tool, so both clean the same way."""
     traffic = remove_duplicates(traffic, stats)
     traffic = fix_outliers(traffic, stats)
     traffic = fill_missing_traffic(traffic, stats)
     traffic = derive_congestion(traffic, stats)
-    traffic, weather = harmonise_categories(traffic, weather, stats)
+    return harmonise_categories(traffic, weather, stats)
+
+
+def run(traffic, weather, calendar, traffic_rejects):
+    """Run stages 2-6 and 8 on M1's output; save the versioned table and the quality report."""
+    stats = {"raw_hash": file_hash(path("raw", CONFIG["raw_files"]["traffic"]))}
+    traffic, weather = clean_traffic(traffic, weather, stats)
     # PRD 16: data/interim holds the cleaned, pre-merge tables
     for name, table in [("traffic", traffic), ("weather", weather), ("calendar", calendar)]:
         table.to_csv(path("interim", f"{name}_clean.csv"), index=False)
@@ -393,14 +354,8 @@ def run(traffic, weather, calendar, traffic_rejects):
     version = CONFIG["project"]["version"]
     out = path("processed", f"flowcast_clean_v{version}.csv")
     merged.to_csv(out, index=False)
-    manifest = {
-        "version": version,
-        "file": out.name,
-        "rows": len(merged),
-        "sha256": file_hash(out),
-        "raw_sha256": stats["raw_hash"],
-        "stats": stats,
-    }
+    manifest = {"version": version, "file": out.name, "rows": len(merged),
+                "sha256": file_hash(out), "raw_sha256": stats["raw_hash"], "stats": stats}
     path("processed", "manifest.json").write_text(json.dumps(manifest, indent=2))
     write_quality_report(stats, traffic_rejects, path("reports", "data_quality.md"))
     log.info("saved %s and reports/data_quality.md", out.name)

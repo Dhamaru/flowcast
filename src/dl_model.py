@@ -48,15 +48,8 @@ log = get_logger("M6")
 DL = CONFIG["lstm"]
 LEVELS = CONFIG["cleaning"]["congestion_levels"]
 # PRD 10.1: Min-Max for bounded features, z-score for unbounded ones
-BOUNDED = [
-    "occupancy",
-    "visibility",
-    "hour_sin",
-    "hour_cos",
-    "is_peak_period",
-    "is_rain",
-    "is_weekend",
-]
+BOUNDED = ["occupancy", "visibility", "hour_sin", "hour_cos", "is_peak_period", "is_rain",
+           "is_weekend"]
 UNBOUNDED = ["traffic_volume", "avg_speed", "temperature", "rainfall"]
 STEP_COLS = UNBOUNDED + BOUNDED
 
@@ -67,14 +60,8 @@ class SequenceModel(nn.Module):
     def __init__(self, n_features, hidden, layers, dropout, bidirectional):
         """Recurrent core plus two output heads."""
         super().__init__()
-        self.rnn = nn.LSTM(
-            n_features,
-            hidden,
-            num_layers=layers,
-            batch_first=True,
-            dropout=dropout,
-            bidirectional=bidirectional,
-        )
+        self.rnn = nn.LSTM(n_features, hidden, num_layers=layers, batch_first=True,
+                           dropout=dropout, bidirectional=bidirectional)
         width = hidden * (2 if bidirectional else 1)
         self.drop = nn.Dropout(dropout)  # dropout before the dense heads (PRD 12.3)
         self.volume_head = nn.Linear(width, 1)
@@ -102,30 +89,26 @@ def build_sequences(values, rows, n):
 def prepare(df, idx, n):
     """Scaled sequences and targets for train / val / test, using M5's exact row split."""
     positions = {k: df.index.get_indexer(v) for k, v in idx.items()}
-    for k, pos in positions.items():
-        assert (df["road_id"].to_numpy()[pos - n] == df["road_id"].to_numpy()[pos]).all(), (
-            "window crosses segments"
-        )
+    roads = df["road_id"].to_numpy()
+    for pos in positions.values():
+        # the oldest step of every window must be on the same road as its target
+        assert (roads[pos - n] == roads[pos]).all(), "window crosses segments"
     train_rows = df.iloc[positions["train"]]
     # Neural networks learn badly when one input is in thousands and another is 0 or 1, so
     # every input is rescaled. The scalers learn their numbers from TRAINING rows only:
     # using test rows here would quietly leak information about the test window.
     zscore = StandardScaler().fit(train_rows[UNBOUNDED])  # -> average 0, spread 1
     minmax = MinMaxScaler().fit(train_rows[BOUNDED])  # -> squeezed into 0..1
-    values = np.hstack([zscore.transform(df[UNBOUNDED]), minmax.transform(df[BOUNDED])]).astype(
-        np.float32
-    )
+    values = np.hstack([zscore.transform(df[UNBOUNDED]),
+                        minmax.transform(df[BOUNDED])]).astype(np.float32)
     y_scaler = StandardScaler().fit(train_rows[["traffic_volume"]])
     data = {}
     for k, pos in positions.items():
         part = df.iloc[pos]
-        data[k] = (
-            torch.tensor(build_sequences(values, pos, n)),
-            torch.tensor(
-                y_scaler.transform(part[["traffic_volume"]]).ravel(), dtype=torch.float32
-            ),
-            torch.tensor(part["congestion_code"].to_numpy(), dtype=torch.long),
-        )
+        y = y_scaler.transform(part[["traffic_volume"]]).ravel()
+        data[k] = (torch.tensor(build_sequences(values, pos, n)),  # inputs
+                   torch.tensor(y, dtype=torch.float32),  # scaled volume target
+                   torch.tensor(part["congestion_code"].to_numpy(), dtype=torch.long))
     return data, {"zscore": zscore, "minmax": minmax, "y": y_scaler}
 
 
@@ -133,9 +116,8 @@ def train(data, hidden, bidirectional, epochs):
     """Mini-batch training with early stopping on validation loss; returns the best weights."""
     set_seeds()
     model = SequenceModel(len(STEP_COLS), hidden, DL["layers"], DL["dropout"], bidirectional)
-    opt = torch.optim.Adam(
-        model.parameters(), lr=DL["learning_rate"], weight_decay=DL["weight_decay"]
-    )
+    opt = torch.optim.Adam(model.parameters(), lr=DL["learning_rate"],
+                           weight_decay=DL["weight_decay"])
     plateau = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, factor=0.5, patience=2)
     mse, ce, w = nn.MSELoss(), nn.CrossEntropyLoss(), DL["congestion_loss_weight"]
     X, y, c = data["train"]
@@ -161,12 +143,9 @@ def train(data, hidden, bidirectional, epochs):
         plateau.step(val_loss)
         history["train"].append(total / len(X))
         history["val"].append(val_loss)
-        if val_loss < best - 1e-5:
-            best, best_state, wait = (
-                val_loss,
-                {k: v.clone() for k, v in model.state_dict().items()},
-                0,
-            )
+        if val_loss < best - 1e-5:  # improved: remember these weights, reset the patience count
+            best, wait = val_loss, 0
+            best_state = {k: v.clone() for k, v in model.state_dict().items()}
         else:
             wait += 1
             if wait >= DL["patience"]:
@@ -183,9 +162,8 @@ def evaluate_model(model, data, scalers, df, idx):
         vol, logits = model(X)
     pred = scalers["y"].inverse_transform(vol.numpy().reshape(-1, 1)).ravel()
     metrics = ev.regression_metrics(df.loc[idx["test"], "traffic_volume"], pred)
-    metrics["congestion_macro_f1"] = ev.congestion_metrics(
-        c.numpy(), logits.argmax(1).numpy(), LEVELS
-    )["macro_f1"]
+    congestion = ev.congestion_metrics(c.numpy(), logits.argmax(1).numpy(), LEVELS)
+    metrics["congestion_macro_f1"] = congestion["macro_f1"]
     return metrics, pred
 
 
@@ -203,15 +181,11 @@ def run(df, board, version, data_sha):
 
     data, scalers = prepare(df, idx, best["seq_length"])
     classical = board["volume"]
-    classical_rmse = next(
-        c for c in classical["candidates"] if c["model"] == classical["selected"]
-    )["test"]["rmse"]
-    result = {
-        "tuning": tuning,
-        "selected": best,
-        "classical": {"model": classical["selected"], "rmse": classical_rmse},
-        "variants": {},
-    }
+    classical_rmse = next(c for c in classical["candidates"]
+                          if c["model"] == classical["selected"])["test"]["rmse"]
+    result = {"tuning": tuning, "selected": best,
+              "classical": {"model": classical["selected"], "rmse": classical_rmse},
+              "variants": {}}
     cards = json.loads(path("models", "model_cards.json").read_text())
     cards = [c for c in cards if not c["file"].endswith(".pt")]
     fig, ax = plt.subplots(figsize=(8, 4))
@@ -221,60 +195,36 @@ def run(df, board, version, data_sha):
         metrics["epochs_run"] = len(history["val"])
         comparison = ev.head_to_head(classical["selected"], classical_rmse, metrics)
         metrics["beats_classical"] = comparison["beats_classical"]
-        result["variants"][label] = {
-            "test": metrics,
-            "history": history,
-            "vs_classical": comparison,
-        }
-        log.info(
-            "%s: RMSE %.2f MAPE %.2f%% congestion macro-F1 %.3f (%d epochs) vs %s RMSE %.2f",
-            label,
-            metrics["rmse"],
-            metrics["mape"],
-            metrics["congestion_macro_f1"],
-            metrics["epochs_run"],
-            classical["selected"],
-            classical_rmse,
-        )
+        result["variants"][label] = {"test": metrics, "history": history,
+                                     "vs_classical": comparison}
+        log.info("%s: RMSE %.2f MAPE %.2f%% congestion macro-F1 %.3f (%d epochs) vs %s RMSE %.2f",
+                 label, metrics["rmse"], metrics["mape"], metrics["congestion_macro_f1"],
+                 metrics["epochs_run"], classical["selected"], classical_rmse)
         file = f"{label.lower()}_volume.pt"
-        torch.save(
-            {
-                "state_dict": model.state_dict(),
-                "hidden": best["hidden_size"],
-                "seq_length": best["seq_length"],
-                "bidirectional": bidirectional,
-                "step_cols": STEP_COLS,
-                "version": version,
-            },
-            path("models", file),
-        )
+        torch.save({"state_dict": model.state_dict(), "hidden": best["hidden_size"],
+                    "seq_length": best["seq_length"], "bidirectional": bidirectional,
+                    "step_cols": STEP_COLS, "version": version}, path("models", file))
         with open(path("models", f"{label.lower()}_scalers.pkl"), "wb") as f:
             pickle.dump(scalers, f)
         ax.plot(history["train"], label=f"{label} train")
         ax.plot(history["val"], "--", label=f"{label} validation")
-        cards.append(
-            {
-                "name": f"{label}, traffic_volume + congestion, next window",
-                "file": file,
-                "algorithm": f"{label} ({DL['layers']} layers, hidden {best['hidden_size']}, "
-                f"window {best['seq_length']}), multi-task",
-                "target": "traffic_volume (+ congestion_level head)",
-                "horizon": 1,
-                "version": version,
-                "train_window": "same as classical models",
-                "train_rows": len(idx["train"]),
-                "params": {
-                    **best,
-                    "dropout": DL["dropout"],
-                    "lr": DL["learning_rate"],
-                    "weight_decay": DL["weight_decay"],
-                },
-                "selected_by": "validation loss over the seq_length x hidden_size grid",
-                "features": STEP_COLS,
-                "data_sha": data_sha,
-                "test_metrics": {k: v for k, v in metrics.items() if not isinstance(v, bool)},
-            }
-        )
+        cards.append({
+            "name": f"{label}, traffic_volume + congestion, next window",
+            "file": file,
+            "algorithm": f"{label} ({DL['layers']} layers, hidden {best['hidden_size']}, "
+                         f"window {best['seq_length']}), multi-task",
+            "target": "traffic_volume (+ congestion_level head)",
+            "horizon": 1,
+            "version": version,
+            "train_window": "same as classical models",
+            "train_rows": len(idx["train"]),
+            "params": {**best, "dropout": DL["dropout"], "lr": DL["learning_rate"],
+                       "weight_decay": DL["weight_decay"]},
+            "selected_by": "validation loss over the seq_length x hidden_size grid",
+            "features": STEP_COLS,
+            "data_sha": data_sha,
+            "test_metrics": {k: v for k, v in metrics.items() if not isinstance(v, bool)},
+        })
     ax.set_xlabel("epoch")
     ax.set_ylabel("loss (MSE + weighted cross-entropy)")
     ax.legend()

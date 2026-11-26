@@ -1,36 +1,44 @@
 # FlowCast
 
-Short-horizon traffic prediction for the Northline Corridor: 25 road segments, 30-minute windows, January to May 2025.
-For each segment it forecasts traffic volume and average speed 30 to 120 minutes ahead, derives travel time, classifies
-congestion and scores accident risk, all with a confidence estimate, and shows them on a Streamlit dashboard.
+Short-horizon traffic prediction for the Northline Corridor. Covers 25 road segments in 30-minute windows, January
+to May 2025. Forecasts traffic volume and average speed 30 to 120 minutes ahead per segment. Derives travel time,
+classifies congestion, scores accident risk, attaches a confidence estimate to each output. Results are displayed on
+a Streamlit dashboard.
 
-Built to `Imported/FlowCast_PRD.docx` v1.0.
+Built to `docs/FlowCast_PRD.docx` v1.0. That file is the PRD this project is measured against: requirements, the nine
+dashboard views, and the success criteria in its section 3.3.
 
 ## New here? Read in this order
 
-Every file starts with a plain-language guide: what it does, the steps in order, and the ideas you need.
+Each file opens with a plain-language guide: purpose, steps in execution order, concepts required.
 
 | # | Open | You'll learn |
 |---|---|---|
-| 1 | `notebooks/01_eda.ipynb` | What the data looks like and every problem in it, one question at a time |
-| 2 | `notebooks/02_cleaning.ipynb` | How each problem is fixed, slowly, on a few rows |
-| 3 | `notebooks/03_modelling.ipynb` | Regression vs classification, how to read the scores, why the winner won |
-| 4 | `run_pipeline.py` | How the whole project runs, step by step |
-| 5 | `src/ingest.py` → `clean.py` → `features.py` → `ml_models.py` → `dl_model.py` | The real code behind the notebooks, in the order it runs |
-| 6 | `dashboard/app.py` | How the results are shown to users |
+| 1 | `notebooks/01_eda.ipynb` | Data structure and every defect in it, examined one question at a time |
+| 2 | `notebooks/02_cleaning.ipynb` | Fix applied to each defect, demonstrated slowly on a few rows |
+| 3 | `notebooks/03_modelling.ipynb` | Regression vs classification, score interpretation, reason the winning model won |
+| 4 | `run_pipeline.py` | End-to-end project execution, step by step |
+| 5 | `src/ingest.py` → `clean.py` → `features.py` → `ml_models.py` → `dl_model.py` | Production code behind the notebooks, in execution order |
+| 6 | `dashboard/app.py` | Presentation of results to end users |
 
-The notebooks only read saved results, so they open and run in seconds. Run `run_pipeline.py` once first if
-`data/processed/` is empty.
+Notebooks read saved results only: no retraining, open and run in seconds. If `data/processed/` is empty, run
+`run_pipeline.py` once first.
 
 ## Setup (one command)
+
+Every command on this page is written as it appears, from the folder that *contains* `flowcast/` — that is where you
+land after `git clone https://github.com/<you>/flowcast.git`. Inside `flowcast/` itself, drop the `flowcast/` prefix:
+`pip install -r requirements.txt`, `pytest tests`, `streamlit run dashboard/app.py`. Both work; `run_pipeline.py`
+resolves its own paths, so it runs from any directory.
 
 ```
 pip install -r flowcast/requirements.txt
 ```
 
-(The CPU-only PyTorch index is set inside `requirements.txt`.)
+(CPU-only PyTorch index is configured inside `requirements.txt`.)
 
-Built and tested on Python 3.13. The PRD names 3.11; nothing here relies on a 3.12+ feature, but 3.11 has not been tested.
+Requires Python 3.13. Built, tested and pinned on 3.13. PRD names 3.11: upgraded to 3.13, listed as a deviation in
+`reports/final_report.md`.
 
 ## Reproduce every result from the raw files (one command)
 
@@ -40,12 +48,12 @@ python flowcast/run_pipeline.py
 
 | Option | What it does |
 |---|---|
-| *(none)* | M1 → M2 → M3 → M5 → M6 from `data/raw/` |
-| `--skip-dl` | stop after the classical models |
-| `--from ml` | retrain only, reusing the saved feature table |
+| *(none)* | Runs M1 → M2 → M3 → M5 → M6 from `data/raw/` |
+| `--skip-dl` | Stops after the classical models |
+| `--from ml` | Retrains only, reuses the saved feature table |
 
-Works from any folder. All randomness is seeded and every setting is in `config.yaml`, so a rerun reproduces the
-reported metrics. Every stage logs to `reports/pipeline.log`.
+Runs from any working directory. All randomness is seeded, all settings live in `config.yaml`: a rerun reproduces
+the reported metrics. Each stage logs to `reports/pipeline.log`.
 
 Then run the tests and open the dashboard:
 
@@ -54,7 +62,7 @@ pytest flowcast/tests
 streamlit run flowcast/dashboard/app.py
 ```
 
-Style check (PEP 8, with the 99-column limit PEP 8 allows teams to agree on):
+Style check: PEP 8 with the 99-column limit PEP 8 permits teams to adopt.
 `pycodestyle --max-line-length=99 --ignore=E203,W503 flowcast/src flowcast/dashboard flowcast/tests`
 
 ## Layout (PRD section 16)
@@ -78,19 +86,20 @@ flowcast/
 ├── reports/            data_quality.md, figures/, final_report.md, scoreboard.json, dl_result.json, test predictions
 ├── dashboard/app.py    M7
 ├── tests/
+├── docs/                FlowCast_PRD.docx — the PRD this build follows
 ├── requirements.txt
 ├── config.yaml
 ├── run_pipeline.py     the one-command entry point (PRD 3.3 / NFR reproducibility)
 └── README.md
 ```
 
-Everything matches the PRD's section 16 tree. `run_pipeline.py` is the only addition: the PRD requires a one-command
-rerun but its tree doesn't name the script. The dashboard's upload sample is built from `data/raw/` on demand rather
-than stored as a separate file.
+Matches the PRD section 16 tree. Two additions: `run_pipeline.py` (PRD requires a one-command rerun but its tree does
+not name the script) and `docs/` (holds the PRD itself, so a reader of this repository can open the requirements the
+build answers to). Dashboard upload sample is generated from `data/raw/` on demand, not stored as a separate file.
 
 ## Where to read the results
 
-- `reports/final_report.md` — methods, the mathematics behind them, results, acceptance check, recommendations
-- `reports/data_quality.md` — every defect in the raw data and how it was resolved (generated)
-- `models/model_cards.md` — each saved model: training window, features, settings, test scores (generated)
-- `notebooks/` — EDA, the cleaning walkthrough, model comparison and error analysis
+- `reports/final_report.md` — Methods, underlying mathematics, results, acceptance check, recommendations
+- `reports/data_quality.md` — Every raw-data defect and its resolution (generated)
+- `models/model_cards.md` — Per saved model: training window, features, settings, test scores (generated)
+- `notebooks/` — EDA, cleaning walkthrough, model comparison, error analysis

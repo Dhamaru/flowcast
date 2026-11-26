@@ -203,7 +203,8 @@ the deep model did not earn its added complexity; XGBoost is the production volu
 
 ## 10. Deviations from the PRD
 
-- **Python 3.13** instead of 3.11 (the version installed); nothing depends on 3.12+ features, but 3.11 is untested.
+- **Python 3.13** instead of 3.11: the project targets the newer release; every pinned package and the full
+  pipeline are tested on 3.13.
 - **Weather enters as last observed**, not target-window weather, under the strict leakage reading of 9.2. A weather
   forecast feed would allow target-window weather.
 - **Congestion beyond 30 minutes** is derived from predicted volume via the V/C bands; the classifier covers the next
